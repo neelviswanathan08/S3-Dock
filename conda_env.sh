@@ -28,5 +28,5 @@ fi
 
 echo "✅ All environments verified and locked locally."
 echo "---------------------------------------------------------------------"
-cd scripts/ || { echo "❌ ERROR: scripts/ folder missing!"; exit 1; }
+cd S3-Dock/scripts/ || { echo "❌ ERROR: S3-Dock/scripts/ folder missing!"; exit 1; }
 
