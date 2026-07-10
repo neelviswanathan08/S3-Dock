@@ -107,7 +107,7 @@ if not archived_models:
     print("⚠️ No valid structural candidates found in top_designs folder to dock.")
     exit(0)
 
-print(f"📦 Found {len(archived_models)} winning candidates to push through global blind dock.")
+print(f"Found {len(archived_models)} winning candidates to push through global blind dock.")
 
 local_haddock_bin = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'envs', 'haddock_env', 'bin', 'haddock3'))
 local_prodigy_bin = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'envs', 'boltz_env', 'bin', 'prodigy'))

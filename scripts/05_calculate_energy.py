@@ -49,15 +49,15 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
         continue
         
     print(f"\n====================================================")
-    print(f"🧮 PROCESSING THERMODYNAMICS FOR: {folder}")
+    print(f" PROCESSING THERMODYNAMICS FOR: {folder}")
     print(f"====================================================")
     sys.stdout.flush()
     
     try:
-        print("📦 Loading NetCDF trajectory...", flush=True)
+        print(" Loading NetCDF trajectory...", flush=True)
         traj = md.load(nc_path, top=cif_path)
         
-        print("💧 Stripping explicit water and isolating chains...", flush=True)
+        print(" Stripping explicit water and isolating chains...", flush=True)
         # Select ONLY protein (strips all water, Na+, Cl-, etc.)
         dry_idx = traj.topology.select('protein')
         traj_dry = traj.atom_slice(dry_idx)
@@ -72,12 +72,12 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
         traj_rec = traj_dry.atom_slice(rec_idx)
         traj_lig = traj_dry.atom_slice(lig_idx)
         
-        print("⚙️ Converting to OpenMM Native Topologies...", flush=True)
+        print(" Converting to OpenMM Native Topologies...", flush=True)
         top_comp = traj_dry.topology.to_openmm()
         top_rec = traj_rec.topology.to_openmm()
         top_lig = traj_lig.topology.to_openmm()
         
-        print("🏗️ Building physics systems (NoCutoff)...", flush=True)
+        print(" Building physics systems (NoCutoff)...", flush=True)
         sys_comp = ff.createSystem(top_comp, nonbondedMethod=app.NoCutoff)
         sys_rec = ff.createSystem(top_rec, nonbondedMethod=app.NoCutoff)
         sys_lig = ff.createSystem(top_lig, nonbondedMethod=app.NoCutoff)
@@ -86,7 +86,7 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
         ctx_rec = mm.Context(sys_rec, mm.VerletIntegrator(1.0), platform)
         ctx_lig = mm.Context(sys_lig, mm.VerletIntegrator(1.0), platform)
         
-        print(f"▶️ Calculating Binding Free Energy across {traj.n_frames} frames...", flush=True)
+        print(f" Calculating Binding Free Energy across {traj.n_frames} frames...", flush=True)
         
         output_csv = os.path.join(mmgbsa_out_dir, f"{folder}_mmgbsa.csv")
         energies = []

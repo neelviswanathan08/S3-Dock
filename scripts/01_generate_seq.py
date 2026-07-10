@@ -9,7 +9,7 @@ import argparse
 import peptides
 
 print("====================================================")
-print("🚀 S3-DOCK: EVOLUTIONARY SEQUENCE OPTIMIZER (v2)")
+print(" S3-DOCK: EVOLUTIONARY SEQUENCE OPTIMIZER (v2)")
 print("====================================================")
 
 # ---------------------------------------------------------------------------
@@ -46,8 +46,8 @@ metadata_path = os.path.join(run_dir, "run_metadata.json")
 rng_seed = cli_args.seed if cli_args.seed is not None else config.get('rng_seed', 42)
 random.seed(rng_seed)
 
-print(f"🏭 Evolving {num_seeds} highly-optimized candidates for run: {run_name}...")
-print(f"🎲 RNG seed: {rng_seed} (reproducible; override with --seed)")
+print(f" Evolving {num_seeds} highly-optimized candidates for run: {run_name}...")
+print(f" RNG seed: {rng_seed} (reproducible; override with --seed)")
 
 # ---------------------------------------------------------------------------
 # 2. DYNAMIC BIOCHEMICAL BUILDING BLOCKS
