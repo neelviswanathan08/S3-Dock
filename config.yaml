@@ -1,3 +1,7 @@
+# =====================================================================
+# S3-DOCK: MASTER CONFIGURATION FILE
+# =====================================================================
+
 # --- 1. FACTORY RUN SETTINGS ---
 run_folder_name: "test_run"
 num_seeds: 2
@@ -5,12 +9,11 @@ samples_per_seed: 1
 max_discovery_loops: 5
 
 # --- 2. PEPTIDE DESIGN CONSTRAINTS ---
-num_seeds: 2
-peptide_length: 20
+peptide_length: 50
 
 # Structural Control ("helix" or "beta_sheet")
 # Changing this directly alters the amino acid pools to prevent AI hallucinations
-secondary_structure: "alpha_helix"  
+secondary_structure: "helix"  
 
 # Chemical Property ("amphipathic", "hydrophobic", "hydrophilic")
 peptide_property: "amphipathic"
@@ -18,11 +21,22 @@ peptide_property: "amphipathic"
 # Override (Leave blank "" to let the pipeline build the H/P pattern automatically)
 custom_pattern: ""
 
-# Strict Biochemical Filtering Gates
-target_net_charge: 1  # Target electrical charge at pH 7.4
-boman_index_min: 0.5
-hydrophobic_moment_target: 0.3
+# Strict Biochemical Filtering Targets
+target_net_charge: 0.3       # Target electrical charge at pH 7.4
+boman_index_min: 0.5         # Minimum binding potential/solubility
+hydrophobic_moment_target: 0.4
 
+# --- 2b. EVOLUTIONARY OPTIMIZER (MONTE CARLO) SETTINGS ---
+rng_seed: 42                 # Seed for reproducibility
+charge_tolerance: 0.5        # Allowable deviation from target_net_charge
+charge_weight: 10            # Penalty multiplier for missing charge target
+boman_weight: 5              # Penalty multiplier for missing Boman target
+moment_weight: 5             # Penalty multiplier for missing Hydrophobic Moment
+max_mutations: 25000         # Maximum iterations before giving up
+plateau_patience: 800        # Iterations stuck before forcing a multi-site jump
+initial_temp: 1.5            # Starting temperature for Simulated Annealing
+cooling_rate: 0.9995         # Rate at which the system "cools" and locks in
+dedupe_output: True          # Ensure all output seeds are unique
 
 # --- 3. DYNAMIC RECEPTOR TARGET SETTINGS ---
 target_cif: "inputs/target_receptor.cif"
