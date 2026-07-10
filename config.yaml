@@ -1,0 +1,90 @@
+# --- 1. FACTORY RUN SETTINGS ---
+run_folder_name: "test_run"
+num_seeds: 2
+samples_per_seed: 1
+max_discovery_loops: 5
+
+# --- 2. PEPTIDE DESIGN CONSTRAINTS ---
+num_seeds: 2
+peptide_length: 20
+
+# Structural Control ("helix" or "beta_sheet")
+# Changing this directly alters the amino acid pools to prevent AI hallucinations
+secondary_structure: "alpha_helix"  
+
+# Chemical Property ("amphipathic", "hydrophobic", "hydrophilic")
+peptide_property: "amphipathic"
+
+# Override (Leave blank "" to let the pipeline build the H/P pattern automatically)
+custom_pattern: ""
+
+# Strict Biochemical Filtering Gates
+target_net_charge: 1  # Target electrical charge at pH 7.4
+boman_index_min: 0.5
+hydrophobic_moment_target: 0.3
+
+
+# --- 3. DYNAMIC RECEPTOR TARGET SETTINGS ---
+target_cif: "inputs/target_receptor.cif"
+binder_chain_id: "K"
+
+target_chains_and_sequences:
+  A: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
+  B: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
+  C: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
+  D: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
+  E: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
+  F: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
+  G: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
+  H: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
+  I: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
+  J: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
+
+# --- 4. UNIVERSAL STRUCTURAL POCKET CONSTRAINTS ---
+max_distance_threshold: 5.0
+pocket_contacts:
+  - ["I", 10]
+  - ["I", 11]
+  - ["I", 12]
+  - ["I", 13]
+  - ["I", 14]
+  - ["I", 15]
+  - ["I", 16]
+  - ["I", 17]
+  - ["I", 18]
+  - ["I", 19]
+  - ["J", 10]
+  - ["J", 11]
+  - ["J", 12]
+  - ["J", 13]
+  - ["J", 14]
+  - ["J", 15]
+  - ["J", 16]
+  - ["J", 17]
+  - ["J", 18]
+  - ["J", 19]
+
+# --- 5. QUALITY CONTROL GATEKEEPERS ---
+rmsd_cutoff: 3.5
+dist_threshold: 2.5
+max_bad_atoms: 350
+
+# --- 6. HADDOCK3 BLIND GLOBAL DOCKING SETTINGS ---
+run_haddock: true                   
+haddock_sampling: 10             
+haddock_seletop: 2                
+haddock_top_clusters: 1             
+
+# --- 7. OPENMM MOLECULAR DYNAMICS SETTINGS ---
+md_simulation_steps: 10000         
+md_reporting_interval: 1000         
+md_temperature_kelvin: 310.15       
+
+# --- 8. MMPBSA ENERGY CALCULATION SETTINGS ---
+mmpbsa_start_frame: 1
+mmpbsa_end_frame: 10
+mmpbsa_interval: 1
+mmpbsa_salt_concentration: 0.150
+
+# --- 9. MM-GBSA ENERGY CALCULATION SETTINGS ---
+mmgbsa_reporting_interval: 1
