@@ -3,7 +3,7 @@
 # =====================================================================
 
 # --- 1. FACTORY RUN SETTINGS ---
-run_folder_name: "test_run"
+run_folder_name: "tests_run"
 num_seeds: 2
 samples_per_seed: 1
 max_discovery_loops: 5
@@ -27,7 +27,7 @@ boman_index_min: 1         # Minimum binding potential/solubility
 hydrophobic_moment_target: 0.4
 
 # --- 2b. EVOLUTIONARY OPTIMIZER (MONTE CARLO) SETTINGS ---
-rng_seed: 672                 # Seed for reproducibility
+rng_seed:     782348        # Seed for reproducibility
 charge_tolerance: 0.5        # Allowable deviation from target_net_charge
 charge_weight: 10            # Penalty multiplier for missing charge target
 boman_weight: 5              # Penalty multiplier for missing Boman target

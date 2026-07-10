@@ -18,7 +18,7 @@ from Bio import BiopythonWarning
 warnings.simplefilter('ignore', BiopythonWarning)
 
 print("====================================================")
-print("🚀 S3-DOCK: FACTORY RUN RUNNING...")
+print("[SYSTEM] S3-DOCK: PHASE 2 - BOLTZ STRUCTURAL FOLDING")
 print("====================================================")
 
 # 1. Setup absolute paths
@@ -131,18 +131,24 @@ def calculate_3d_helicity_score(pred_cif_path, chain_id=binder_id):
 def run_prodigy_scoring(cif_path, model_id):
     try:
         receptor_str = ",".join(target_chains)
-        prodigy_cmd = f"prodigy {cif_path} --selection {receptor_str} {binder_id}"
+        # Using the absolute path to the official HADDOCK PRODIGY binary
+        prodigy_bin = os.path.join(os.path.dirname(sys.executable), "prodigy")
+        prodigy_cmd = f"{prodigy_bin} {cif_path} --selection {receptor_str} {binder_id}"
+        
         result = subprocess.run(prodigy_cmd, shell=True, capture_output=True, text=True)
         
-        delta_g, kd = 0.0, "N/A"
+        delta_g = 999.0 # Default to a terrible score so it fails if PRODIGY crashes
+        kd = "N/A"
         for line in result.stdout.split('\n'):
             if "predicted binding affinity" in line.lower():
                 delta_g = float(line.split()[-1])
             if "predicted dissociation constant" in line.lower():
                 kd = line.split()[-1]
+                
         return delta_g, kd
     except Exception as e:
-        return 0.0, "N/A"
+        print(f"   [WARNING] PRODIGY scoring failed for {model_id}: {e}", flush=True)
+        return 999.0, "N/A"
 
 def parse_fasta(path):
     seqs = []
@@ -163,7 +169,7 @@ def format_time(seconds):
     return f"{hours}h {minutes}m {secs}s"
 
 if not os.path.exists(fasta_bridge_path):
-    print(f"❌ ERROR: Could not find bridge library at {fasta_bridge_path}. Stage 1 failed.")
+    print(f"[ERROR] Could not find bridge library at {fasta_bridge_path}. Stage 1 failed.", flush=True)
     exit(1)
 
 jobs = parse_fasta(fasta_bridge_path)
@@ -173,14 +179,13 @@ if not os.path.exists(master_csv):
     with open(master_csv, "w", newline="") as f:
         csv.writer(f).writerow(["Model_ID", "Seed_ID", "Boltz_ipTM", "Global_Backbone_RMSD", "Dislocated_Atoms", "3D_Helicity_Score", "PRODIGY_dG_kcal_mol", "PRODIGY_Kd_M"])
 
-print(" Loading machine learning libraries (this takes a few seconds)...", flush=True)
-print(" Libraries loaded. Starting Discovery Queue...\n", flush=True)
+print("[INFO] Loading machine learning libraries (this takes a few seconds)...", flush=True)
+print("[SUCCESS] Libraries loaded. Starting Discovery Queue...\n", flush=True)
 
 start_time = time.time()
 
 for idx, (seq_id, sequence) in enumerate(jobs, 1):
     
-    # Calculate ETA for the UI
     if idx == 1:
         eta_str = "Calculating... (Waiting for first fold to calibrate speed)"
     else:
@@ -188,11 +193,11 @@ for idx, (seq_id, sequence) in enumerate(jobs, 1):
         eta = avg_time * (len(jobs) - idx + 1)
         eta_str = f"~{format_time(eta)} remaining for entire run"
 
-    print(f" [{idx}/{len(jobs)}] DISCOVERY QUEUE: {seq_id}", flush=True)
-    print(f"    Sequence : {sequence}", flush=True)
-    print(f"    Length   : {len(sequence)} AA", flush=True)
-    print(f"    Est. Time: {eta_str}", flush=True)
-    print(f"     Status  : Booting Boltz-2 Deep Learning Engine (Folding in progress... this takes time!)", flush=True)
+    print(f"[QUEUE] [{idx}/{len(jobs)}] DISCOVERY QUEUE: {seq_id}", flush=True)
+    print(f"   Sequence : {sequence}", flush=True)
+    print(f"   Length   : {len(sequence)} AA", flush=True)
+    print(f"   Est. Time: {eta_str}", flush=True)
+    print(f"   Status   : Booting Boltz-2 Deep Learning Engine...", flush=True)
     
     design_dir = os.path.join(run_dir, seq_id)
     os.makedirs(design_dir, exist_ok=True)
@@ -221,11 +226,10 @@ for idx, (seq_id, sequence) in enumerate(jobs, 1):
     
     boltz_cmd = f"{boltz_bin} predict {yaml_filename} --use_msa_server --use_potentials --out_dir {design_dir} --recycling_steps 10 --diffusion_samples {samples} --override"
     
-    # Run Boltz silently but capture output to catch errors
     process = subprocess.run(boltz_cmd, shell=True, capture_output=True, text=True)
     
     if process.returncode != 0:
-        print(f"\n [CRITICAL BOLTZ CRASH] Boltz failed to execute for {seq_id}!\n")
+        print(f"\n[CRITICAL ERROR] Boltz failed to execute for {seq_id}!\n", flush=True)
         print(f"--- ERROR LOG START ---\n{process.stderr}\n--- ERROR LOG END ---", flush=True)
         continue
     
@@ -236,7 +240,7 @@ for idx, (seq_id, sequence) in enumerate(jobs, 1):
                 generated_models.append(os.path.join(root, file))
     
     valid_candidates = []
-    print(f"    Folding Complete! Evaluating {len(generated_models)} generated models for {seq_id}:", flush=True)
+    print(f"   [SUCCESS] Folding Complete! Evaluating {len(generated_models)} generated models for {seq_id}:", flush=True)
     
     for best_cif_path in generated_models:
         filename = os.path.basename(best_cif_path)
@@ -272,19 +276,20 @@ for idx, (seq_id, sequence) in enumerate(jobs, 1):
         })
 
     if valid_candidates:
-        valid_candidates.sort(key=lambda x: x['dG'])
+        # EXPLICIT SORTING: Sorts by lowest dG (which equates to lowest Kd / highest affinity)
+        valid_candidates.sort(key=lambda x: float(x['dG']))
         top_design = valid_candidates[0]
         
-        print(f"    TOP MODEL: {top_design['id']} | dG: {top_design['dG']} kcal/mol | ipTM: {top_design['iptm']:.2f} | Kd: {top_design['Kd']}")
+        print(f"   [CHAMPION] TOP MODEL: {top_design['id']} | dG: {top_design['dG']} kcal/mol | ipTM: {top_design['iptm']:.2f} | Kd: {top_design['Kd']}", flush=True)
 
         with open(master_csv, "a", newline="") as f:
             csv.writer(f).writerow([top_design['id'], seq_id, top_design['iptm'], round(top_design['rmsd'], 2), top_design['bad_atoms'], top_design['helicity'], top_design['dG'], top_design['Kd']])
             
         shutil.copy(top_design['path'], os.path.join(final_dir, f"{top_design['id']}_best.cif"))
     else:
-        print(f"    No trajectories passed structural validation limits.")
+        print(f"   [WARNING] No trajectories passed structural validation limits.", flush=True)
 
     print("----------------------------------------------------", flush=True)
 
 if not os.path.exists(final_dir) or not os.listdir(final_dir):
-    print(" PHASE 2 COMPLETE: No sequences survived the structural gatekeepers.", flush=True)
+    print("[PHASE 2 COMPLETE] No sequences survived the structural gatekeepers.", flush=True)
