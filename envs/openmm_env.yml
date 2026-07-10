@@ -112,4 +112,3 @@ dependencies:
       - matplotlib==3.11.0
       - pillow==12.3.0
       - pyyaml==6.0.2
-prefix: /home/aicd3-2/miniconda3/envs/openmm_env

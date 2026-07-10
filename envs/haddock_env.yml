@@ -63,4 +63,3 @@ dependencies:
       - six==1.17.0
       - toml==0.10.2
       - tzdata==2026.2
-prefix: /home/aicd3-2/miniconda3/envs/haddock3_env

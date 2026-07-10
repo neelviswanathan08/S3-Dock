@@ -141,4 +141,3 @@ dependencies:
       - yarl==1.22.0
       - numba==0.61.0
       - numpy<2.1
-prefix: /home/aicd3-2/miniconda3/envs/boltz2
