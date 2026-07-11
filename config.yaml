@@ -1,29 +1,22 @@
-# =====================================================================
-# S3-DOCK: MASTER CONFIGURATION FILE
-# =====================================================================
-
 # --- 1. FACTORY RUN SETTINGS ---
-run_folder_name: "tests_run"
+run_folder_name: "test_run"
 num_seeds: 2
 samples_per_seed: 1
 max_discovery_loops: 5
 
 # --- 2. PEPTIDE DESIGN CONSTRAINTS ---
 peptide_length: 22
-
-# Structural Control ("helix" or "beta_sheet")
-# Changing this directly alters the amino acid pools to prevent AI hallucinations
 secondary_structure: "helix"  
-
-# Chemical Property ("amphipathic", "hydrophobic", "hydrophilic")
 peptide_property: "amphipathic"
-
-# Override (Leave blank "" to let the pipeline build the H/P pattern automatically)
 custom_pattern: ""
 
-# Strict Biochemical Filtering Targets
-target_net_charge: 3       # Target electrical charge at pH 7.4
-boman_index_min: 1         # Minimum binding potential/solubility
+# 🔬 BENCHMARK GATEKEEPER
+benchmark_mode: true                        # Set to true to bypass generator and run 1000 folds
+benchmark_sequence: "MEFVAKLFKFFKDLLGKFLGNN"  # PSM-alpha-3 Control Sequence
+
+# Strict Biochemical Filtering Targets (Used if benchmark_mode is false)
+target_net_charge: 3       
+boman_index_min: 1         
 hydrophobic_moment_target: 0.4
 
 # --- 2b. EVOLUTIONARY OPTIMIZER (MONTE CARLO) SETTINGS ---
@@ -85,20 +78,20 @@ max_bad_atoms: 350
 
 # --- 6. HADDOCK3 BLIND GLOBAL DOCKING SETTINGS ---
 run_haddock: true                   
-haddock_sampling: 10             
-haddock_seletop: 2                
-haddock_top_clusters: 1             
+haddock_sampling: 1000             
+haddock_seletop: 200                
+haddock_top_clusters: 5             
 
 # --- 7. OPENMM MOLECULAR DYNAMICS SETTINGS ---
-md_simulation_steps: 10000         
-md_reporting_interval: 1000         
+md_simulation_steps: 50000000         
+md_reporting_interval: 10000         
 md_temperature_kelvin: 310.15       
 
 # --- 8. MMPBSA ENERGY CALCULATION SETTINGS ---
 mmpbsa_start_frame: 1
-mmpbsa_end_frame: 10
-mmpbsa_interval: 1
+mmpbsa_end_frame: 5000
+mmpbsa_interval: 10
 mmpbsa_salt_concentration: 0.150
 
 # --- 9. MM-GBSA ENERGY CALCULATION SETTINGS ---
-mmgbsa_reporting_interval: 1
+mmgbsa_reporting_interval: 50
