@@ -12,7 +12,8 @@ custom_pattern: ""
 
 # 🔬 BENCHMARK GATEKEEPER
 benchmark_mode: true                        # Set to true to bypass generator and run 1000 folds
-benchmark_sequence: "MEFVAKLFKFFKDLLGKFLGNN"  # PSM-alpha-3 Control Sequence
+benchmark_sequence: "MEFVAKLFKFFKDLLGKFLGNN"  # Benchmark Sequence
+benchmark_samples: 1000
 
 # Strict Biochemical Filtering Targets (Used if benchmark_mode is false)
 target_net_charge: 3       

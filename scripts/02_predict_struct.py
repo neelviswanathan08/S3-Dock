@@ -36,11 +36,13 @@ master_csv = os.path.join(final_dir, f"caps_2_{run_name}_master_metrics.csv")
 target_cif = os.path.abspath(os.path.join(SCRIPT_DIR, "..", config['target_cif']))
 binder_id = config['binder_chain_id']
 target_chains = list(config['target_chains_and_sequences'].keys())
+rng_seed = config.get('rng_seed', 42)
 
-# Dynamic Sampling Routine Override
-if config.get('benchmark_mode', False):
-    samples = 1000
-    print("[BENCHMARK ROUTINE] Matrix forced to 1000 structural diffusion variations.", flush=True)
+# Dynamic Sampling Routine Selection
+is_benchmark = config.get('benchmark_mode', False)
+if is_benchmark:
+    samples = config.get('benchmark_samples', 1000)
+    print(f"[BENCHMARK ROUTINE] Matrix forced to {samples} structural diffusion variations.", flush=True)
 else:
     samples = config.get('samples_per_seed', 1)
 
@@ -166,8 +168,10 @@ for idx, (seq_id, sequence) in enumerate(jobs, 1):
     with open(yaml_filename, "w") as f: f.write("\n".join(yaml_lines))
         
     boltz_bin = os.path.join(os.path.dirname(sys.executable), "boltz")
-    print(f"[INFO] Booting Boltz-2 Engine to generate {samples} structural samples...", flush=True)
-    boltz_cmd = f"{boltz_bin} predict {yaml_filename} --use_msa_server --use_potentials --out_dir {design_dir} --recycling_steps 10 --diffusion_samples {samples} --override"
+    print(f"[INFO] Booting Boltz-2 Engine to generate {samples} structural samples (Seed: {rng_seed})...", flush=True)
+    
+    # 🔒 REPRODUCIBILITY FIX: Explicitly passing --seed parameter to the deep learning engine
+    boltz_cmd = f"{boltz_bin} predict {yaml_filename} --use_msa_server --use_potentials --out_dir {design_dir} --recycling_steps 10 --diffusion_samples {samples} --seed {rng_seed} --override"
     
     process = subprocess.run(boltz_cmd, shell=True, capture_output=True, text=True)
     if process.returncode != 0: continue
@@ -177,8 +181,11 @@ for idx, (seq_id, sequence) in enumerate(jobs, 1):
         for file in files:
             if file.endswith(".cif") and file != os.path.basename(target_cif): generated_models.append(os.path.join(root, file))
     
+    # Sort structural tracks numerically so real-time log updates read incrementally (M0, M1, M2...)
+    generated_models.sort(key=lambda x: [int(c) if c.isdigit() else c for c in re.split(r'(\d+)', x)])
+    
     valid_candidates = []
-    print(f"[INFO] Screening all {len(generated_models)} generated models via PRODIGY Matrix...", flush=True)
+    print(f"[INFO] Production Complete. Initiating Real-Time Structural Screening Matrix...", flush=True)
     
     for best_cif_path in generated_models:
         filename = os.path.basename(best_cif_path)
@@ -197,21 +204,29 @@ for idx, (seq_id, sequence) in enumerate(jobs, 1):
                     except: pass
 
         global_rmsd, bad_atoms = check_smart_holistic_similarity(best_cif_path, target_cif)
-        if global_rmsd > config['rmsd_cutoff'] or bad_atoms > config['max_bad_atoms']: continue
+        
+        # Stream failures instantly if running a benchmark routine
+        if global_rmsd > config['rmsd_cutoff'] or bad_atoms > config['max_bad_atoms']:
+            if is_benchmark:
+                print(f"   -> [REJECTED] {model_id} failed structural filters (RMSD: {global_rmsd:.2f} A | Dislocated Atoms: {bad_atoms})", flush=True)
+            continue
             
         helicity_score = calculate_3d_helicity_score(best_cif_path)
         dG, Kd = run_prodigy_scoring(best_cif_path, model_id)
         
         if dG != 999.0:
             valid_candidates.append({'path': best_cif_path, 'id': model_id, 'iptm': iptm_score, 'rmsd': global_rmsd, 'bad_atoms': bad_atoms, 'helicity': helicity_score, 'dG': dG, 'Kd': Kd})
+            # 📻 LIVE LOG UPDATE: Stream successful tracks instantly during high-throughput benchmarks
+            if is_benchmark:
+                print(f"   -> [EVALUATED] {model_id} | dG: {dG} kcal/mol | Kd: {Kd} | RMSD: {global_rmsd:.2f} A | Helicity: {helicity_score}", flush=True)
 
     if valid_candidates:
         valid_candidates.sort(key=lambda x: float(x['dG']))
         top_design = valid_candidates[0]
-        print(f"[CHAMPION] Selected Best Conformational State: {top_design['id']} | dG: {top_design['dG']} kcal/mol | Kd: {top_design['Kd']}", flush=True)
+        print(f"\n[CHAMPION] Selected Best Conformational State: {top_design['id']} | dG: {top_design['dG']} kcal/mol | Kd: {top_design['Kd']}", flush=True)
         with open(master_csv, "a", newline="") as f:
             csv.writer(f).writerow([top_design['id'], seq_id, top_design['iptm'], round(top_design['rmsd'], 2), top_design['bad_atoms'], top_design['helicity'], top_design['dG'], top_design['Kd']])
         shutil.copy(top_design['path'], os.path.join(final_dir, f"{top_design['id']}_best.cif"))
     else:
-        print(f"[WARNING] No structural variations passed validation gates.", flush=True)
+        print(f"\n[WARNING] No structural variations passed validation gates.", flush=True)
     print("----------------------------------------------------", flush=True)
