@@ -1,3 +1,7 @@
+# =====================================================================
+# S3-DOCK: MASTER CONFIGURATION FILE
+# =====================================================================
+
 # --- 1. FACTORY RUN SETTINGS ---
 run_folder_name: "LL37_Peptide"
 num_seeds:  150              # Default to 1000 tracks (Ignored if benchmark_mode is true)
@@ -8,27 +12,36 @@ max_discovery_loops: 5
 peptide_length: 22
 
 # Structural Control ("helix" or "beta_sheet")
-# Changing this directly alters the amino acid pools to prevent AI hallucinations
 secondary_structure: "helix"  
+
+# Chemical Property ("amphipathic", "hydrophobic", "hydrophilic")
 peptide_property: "amphipathic"
+
+# Override (Leave blank "" to let the pipeline build the H/P pattern automatically)
 custom_pattern: ""
 
-# Strict Biochemical Filtering Targets
+# 🔬 BENCHMARK GATEKEEPER MATRIX
+# Set benchmark_mode to true to duplicate the sequence across 1000 slots and select the top 1
+benchmark_mode: true                        
+benchmark_sequence: "LLGDFFRKSKEKIGKEFKRIVQRIKDFLRNLVPRTES"  # PSM-alpha-3 Control Sequence
+benchmark_samples: 150                    # Total fasta seeds to write into library.fasta
+
+# Strict Biochemical Filtering Targets (Used if benchmark_mode is false)
 target_net_charge: 3       # Target electrical charge at pH 7.4
 boman_index_min: 1         # Minimum binding potential/solubility
 hydrophobic_moment_target: 0.4
 
 # --- 2b. EVOLUTIONARY OPTIMIZER (MONTE CARLO) SETTINGS ---
-rng_seed: 672                 # Seed for reproducibility
-charge_tolerance: 0.5        # Allowable deviation from target_net_charge
-charge_weight: 10            # Penalty multiplier for missing charge target
-boman_weight: 5              # Penalty multiplier for missing Boman target
-moment_weight: 5             # Penalty multiplier for missing Hydrophobic Moment
-max_mutations: 50000         # Maximum iterations before giving up
-plateau_patience: 800        # Iterations stuck before forcing a multi-site jump
-initial_temp: 1.5            # Starting temperature for Simulated Annealing
-cooling_rate: 0.9995         # Rate at which the system "cools" and locks in
-dedupe_output: True          # Ensure all output seeds are unique
+rng_seed: 5         # Master RNG seed for deep learning and optimizer reproducibility
+charge_tolerance: 0.5        
+charge_weight: 10            
+boman_weight: 5              
+moment_weight: 5             
+max_mutations: 50000         
+plateau_patience: 800        
+initial_temp: 1.5            
+cooling_rate: 0.9995         
+dedupe_output: True          
 
 # --- 3. DYNAMIC RECEPTOR TARGET SETTINGS ---
 target_cif: "inputs/target_receptor.cif"
@@ -78,20 +91,20 @@ max_bad_atoms: 350
 # --- 6. HADDOCK3 BLIND GLOBAL DOCKING SETTINGS ---
 rnd_haddock_seed: 100
 run_haddock: true                   
-haddock_sampling: 10             
-haddock_seletop: 2                
-haddock_top_clusters: 1             
+haddock_sampling: 1000             
+haddock_seletop: 100                
+haddock_top_clusters: 10            
 
 # --- 7. OPENMM MOLECULAR DYNAMICS SETTINGS ---
-md_simulation_steps: 10000         
-md_reporting_interval: 1000         
+md_simulation_steps: 50000000       # Production-scale trajectory length
+md_reporting_interval: 10000         # Yields exactly 5,000 saved trajectory frames
 md_temperature_kelvin: 310.15       
 
 # --- 8. MMPBSA ENERGY CALCULATION SETTINGS ---
-mmpbsa_start_frame: 1
-mmpbsa_end_frame: 10
-mmpbsa_interval: 1
+mmpbsa_start_frame: 2500             # Excludes first 50% relaxation/burn-in window
+mmpbsa_end_frame: 5000               # Terminal frame boundaries
+mmpbsa_interval: 10                  # Samples exactly 250 production frames
 mmpbsa_salt_concentration: 0.150
 
 # --- 9. MM-GBSA ENERGY CALCULATION SETTINGS ---
-mmgbsa_reporting_interval: 1
+mmgbsa_reporting_interval: 2.5        # Evaluates exactly 100 evenly distributed coordinates

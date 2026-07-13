@@ -30,11 +30,11 @@ mmgbsa_out_dir = os.path.join(run_dir, "mmgbsa_results")
 os.makedirs(mmgbsa_out_dir, exist_ok=True)
 
 if not os.path.exists(md_dir) or not os.listdir(md_dir):
-    print("❌ ERROR: No active production coordinates discovered. Exiting.", flush=True)
+    print(" ERROR: No active production coordinates discovered. Exiting.", flush=True)
     sys.exit(1)
 
 # Load Forcefield once to save time
-print("⚙️ Loading AMBER14 Forcefield + OBC2 Implicit Solvent (igb=5)...", flush=True)
+print(" Loading AMBER14 Forcefield + OBC2 Implicit Solvent (igb=5)...", flush=True)
 ff = app.ForceField('amber14-all.xml', 'implicit/obc2.xml')
 
 # Use CPU for analysis to prevent GPU memory overflow during rapid calculation loops
@@ -46,10 +46,10 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
     nc_path = os.path.join(model_md_path, "trajectory.nc")
     output_csv = os.path.join(mmgbsa_out_dir, f"{folder}_mmgbsa.csv")
     
-    # 🚨 SMART RESUME: Skip if this specific folder has already been calculated!
+    #  SMART RESUME: Skip if this specific folder has already been calculated!
     if os.path.exists(output_csv):
         print(f"\n====================================================")
-        print(f" ⏩ [SMART RESUME] Existing MM-GBSA data found for {folder}. Skipping.")
+        print(f"  [SMART RESUME] Existing MM-GBSA data found for {folder}. Skipping.")
         print(f"====================================================")
         continue
         
@@ -62,12 +62,12 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
     sys.stdout.flush()
     
     try:
-        print("📦 Loading NetCDF trajectory...", flush=True)
+        print(" Loading NetCDF trajectory...", flush=True)
         raw_traj = md.load(nc_path, top=cif_path)
         total_frames = raw_traj.n_frames
         print(f"   ↳ Discovered total trajectory depth: {total_frames} frames", flush=True)
         
-        # 🚨 DYNAMIC SLICING LAYER: Determine production window
+        #  DYNAMIC SLICING LAYER: Determine production window
         # Default to skipping the first 50% (equilibration window) if not configured
         default_start = total_frames // 2
         start_frame = config.get('mmpbsa_start_frame', default_start)
@@ -79,16 +79,16 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
         if end_frame == -1 or end_frame > total_frames:
             end_frame = total_frames
             
-        print(f"✂️ Slicing Trajectory: Extracting frames {start_frame} to {end_frame} (Interval: every {frame_interval} frames)...", flush=True)
+        print(f" Slicing Trajectory: Extracting frames {start_frame} to {end_frame} (Interval: every {frame_interval} frames)...", flush=True)
         traj = raw_traj[start_frame:end_frame:frame_interval]
         print(f"   ↳ Analysis pool restricted to {traj.n_frames} production snapshots.", flush=True)
         
-        print("🔄 Wrapping periodic boundaries and centering coordinates in RAM...", flush=True)
+        print(" Wrapping periodic boundaries and centering coordinates in RAM...", flush=True)
         traj.image_molecules(inplace=True)
         protein_alignment_idx = traj.topology.select("protein")
         traj.superpose(traj, 0, atom_indices=protein_alignment_idx)
         
-        print("🧬 Isolating Receptor (Fibril) and Ligand (Peptide)...", flush=True)
+        print(" Isolating Receptor (Fibril) and Ligand (Peptide)...", flush=True)
         dry_idx = traj.topology.select('protein')
         traj_dry = traj.atom_slice(dry_idx)
         
@@ -104,7 +104,7 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
         top_rec = traj_rec.topology.to_openmm()
         top_lig = traj_lig.topology.to_openmm()
         
-        print("🏗️ Building physics systems (NoCutoff)...", flush=True)
+        print(" Building physics systems (NoCutoff)...", flush=True)
         sys_comp = ff.createSystem(top_comp, nonbondedMethod=app.NoCutoff)
         sys_rec = ff.createSystem(top_rec, nonbondedMethod=app.NoCutoff)
         sys_lig = ff.createSystem(top_lig, nonbondedMethod=app.NoCutoff)
@@ -113,7 +113,7 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
         ctx_rec = mm.Context(sys_rec, mm.VerletIntegrator(1.0), platform)
         ctx_lig = mm.Context(sys_lig, mm.VerletIntegrator(1.0), platform)
         
-        print(f"🧮 Calculating Thermodynamic Binding Energy...", flush=True)
+        print(f" Calculating Thermodynamic Binding Energy...", flush=True)
         
         energies = []
         
@@ -145,13 +145,13 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
         dg_std = np.std(energies)
         
         print("\n" + "="*50)
-        print("🎉 CALCULATION COMPLETE 🎉")
+        print(" CALCULATION COMPLETE 🎉")
         print("="*50)
-        print(f"✅ FINAL PRODUCTION MM-GBSA ΔG for {folder}: {dg_final:.2f} ± {dg_std:.2f} kcal/mol")
+        print(f" FINAL PRODUCTION MM-GBSA ΔG for {folder}: {dg_final:.2f} ± {dg_std:.2f} kcal/mol")
         print("="*50, flush=True)
         
     except Exception as e:
-        print(f"❌ [ERROR] Calculation failed for {folder}: {e}", flush=True)
+        print(f" [ERROR] Calculation failed for {folder}: {e}", flush=True)
         # 🚨 DELETE CORRUPTED CSV IF FAILED SO IT DOESN'T FALSELY TRIGGER SMART RESUME NEXT TIME
         if os.path.exists(output_csv):
             os.remove(output_csv)
