@@ -169,11 +169,12 @@ top_clusters = {config.get('haddock_top_clusters', 10)}
     with open(haddock_cfg_path, "w") as hf:
         hf.write(haddock_toml_content)
         
-    print(f"   -> Docking... Running full 7-stage HADDOCK3 pipeline Matrix with seed [{haddock_seed}]...", flush=True)
+    print(f"   -> Docking... Running full 7-stage HADDOCK3 pipeline Matrix...")
     subprocess.run(f"{local_haddock_bin} {haddock_cfg_path}", shell=True)
     print(f"   [SUCCESS] HADDOCK3 Complete!", flush=True)
 
-    print(f"   -> Evaluating Top Docked Pose with PRODIGY...", flush=True)
+    print(f"   -> Evaluating Top Docked Pose with PRODIGY...")
+    # Catch both standard PDBs and compressed .pdb.gz files natively
     haddock_models = glob.glob(os.path.join(haddock_output_dir, "**", "*_1.pdb*"), recursive=True)
     if not haddock_models:
         haddock_models = glob.glob(os.path.join(haddock_output_dir, "**", "*.pdb*"), recursive=True)
