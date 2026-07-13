@@ -23,7 +23,7 @@ custom_pattern: ""
 # 🔬 BENCHMARK GATEKEEPER MATRIX
 # Set benchmark_mode to true to duplicate the sequence across 1000 slots and select the top 1
 benchmark_mode: true                        
-benchmark_sequence: "LLGDFFRKSKEKIGKEFKRIVQRIKDFLRNLVPRTES"  # PSM-alpha-3 Control Sequence
+benchmark_sequence: "MEFVAKLFKFFKDLLGKFLGNN"  # PSM-alpha-3 Control Sequence
 benchmark_samples: 150                    # Total fasta seeds to write into library.fasta
 
 # Strict Biochemical Filtering Targets (Used if benchmark_mode is false)
