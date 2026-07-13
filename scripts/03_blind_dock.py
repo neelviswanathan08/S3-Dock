@@ -5,9 +5,9 @@ import glob
 import gzip
 from Bio.PDB import MMCIFParser, PDBIO
 
-print("====================================================")
-print(" S3-DOCK: PHASE 3 - UNBIASED BLIND GLOBAL DOCKING")
-print("====================================================")
+print("====================================================", flush=True)
+print("[SYSTEM] S3-DOCK: PHASE 3 - UNBIASED BLIND GLOBAL DOCKING", flush=True)
+print("====================================================", flush=True)
 
 # 1. Setup absolute paths
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -17,7 +17,7 @@ with open(CONFIG_PATH, 'r') as file:
     config = yaml.safe_load(file)
 
 if not config.get('run_haddock', False):
-    print(" HADDOCK Global Docking disabled in config.yaml. Skipping Phase 3.")
+    print("[SKIP] HADDOCK Global Docking disabled in config.yaml. Skipping Phase 3.", flush=True)
     exit(0)
 
 run_name = config['run_folder_name']
@@ -60,7 +60,7 @@ def extract_and_sanitize_target(cif_path, output_pdb_path, chains_to_keep):
         io.save(output_pdb_path)
         return True
     except Exception as e:
-        print(f"   ❌ Target Sanitization Error: {e}")
+        print(f"   [ERROR] Target Sanitization Error: {e}", flush=True)
         return False
 
 def extract_and_sanitize_binder(cif_path, output_pdb_path, binder_chain_id):
@@ -94,27 +94,30 @@ def extract_and_sanitize_binder(cif_path, output_pdb_path, binder_chain_id):
         io.save(output_pdb_path)
         return True
     except Exception as e:
-        print(f"   ❌ Binder Sanitization Error: {e}")
+        print(f"   [ERROR] Binder Sanitization Error: {e}", flush=True)
         return False
 
 if not os.path.exists(final_dir):
-    print(f"❌ ERROR: No 'top_designs' directory found at {final_dir}.")
+    print(f"[ERROR] No 'top_designs' directory found at {final_dir}.", flush=True)
     exit(1)
 
 archived_models = [os.path.join(final_dir, f) for f in os.listdir(final_dir) if f.endswith("_best.cif")]
 
 if not archived_models:
-    print("⚠️ No valid structural candidates found in top_designs folder to dock.")
+    print("[WARNING] No valid structural candidates found in top_designs folder to dock.", flush=True)
     exit(0)
 
-print(f"Found {len(archived_models)} winning candidates to push through global blind dock.")
+print(f"[INFO] Found {len(archived_models)} winning candidates to push through global blind dock.", flush=True)
 
 local_haddock_bin = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'envs', 'haddock_env', 'bin', 'haddock3'))
 local_prodigy_bin = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'envs', 'boltz_env', 'bin', 'prodigy'))
 
+# 🚨 GRAB SEEDS FROM CONFIG 🚨
+haddock_seed = config.get('rnd_haddock_seed', config.get('rng_seed', 42))
+
 for cif_path in archived_models:
     model_base_name = os.path.basename(cif_path).replace("_best.cif", "")
-    print(f"\n Blind Docking Matrix Setup for: {model_base_name}...")
+    print(f"\n[QUEUE] Blind Docking Matrix Setup for: {model_base_name}...", flush=True)
     
     haddock_work_dir = os.path.join(run_dir, "haddock_runs", model_base_name)
     os.makedirs(haddock_work_dir, exist_ok=True)
@@ -122,13 +125,14 @@ for cif_path in archived_models:
     target_pdb_path = os.path.join(haddock_work_dir, "target_complex.pdb")
     peptide_pdb_path = os.path.join(haddock_work_dir, "candidate_peptide.pdb")
     
-    print("   -> Running Advanced Sequential Renumbering on PDB inputs...")
+    print("   -> Running Advanced Sequential Renumbering on PDB inputs...", flush=True)
     extract_and_sanitize_target(cif_path, target_pdb_path, target_chains)
     extract_and_sanitize_binder(cif_path, peptide_pdb_path, binder_id)
     
     haddock_cfg_path = os.path.join(haddock_work_dir, "blind_dock.toml")
     haddock_output_dir = os.path.join(haddock_work_dir, "haddock3_output")
     
+    # 🚨 FIX: MOVED iniseed INTO THE PHYSICS MODULES 🚨
     haddock_toml_content = f"""run_dir = "{haddock_output_dir}"
 mode = "local"
 ncores = 2
@@ -142,33 +146,34 @@ molecules = [
 autohis = true
 
 [rigidbody]
-sampling = {config.get('haddock_sampling', 10000)}
+sampling = {config.get('haddock_sampling', 1000)}
 cmrest = true
+iniseed = {haddock_seed}
 
 [seletop]
-select = {config.get('haddock_seletop', 400)}
+select = {config.get('haddock_seletop', 200)}
 
 [flexref]
 tolerance = 20
+iniseed = {haddock_seed}
 
 [emref]
 
 [clustfcc]
 
 [seletopclusts]
-top_clusters = 5
+top_clusters = {config.get('haddock_top_clusters', 10)}
 
 [caprieval]
 """
     with open(haddock_cfg_path, "w") as hf:
         hf.write(haddock_toml_content)
         
-    print(f"   -> Docking... Running full 7-stage HADDOCK3 pipeline Matrix...")
+    print(f"   -> Docking... Running full 7-stage HADDOCK3 pipeline Matrix with seed [{haddock_seed}]...", flush=True)
     subprocess.run(f"{local_haddock_bin} {haddock_cfg_path}", shell=True)
-    print(f"   ✅ HADDOCK3 Complete!")
+    print(f"   [SUCCESS] HADDOCK3 Complete!", flush=True)
 
-    print(f"   -> Evaluating Top Docked Pose with PRODIGY...")
-    # Catch both standard PDBs and compressed .pdb.gz files natively
+    print(f"   -> Evaluating Top Docked Pose with PRODIGY...", flush=True)
     haddock_models = glob.glob(os.path.join(haddock_output_dir, "**", "*_1.pdb*"), recursive=True)
     if not haddock_models:
         haddock_models = glob.glob(os.path.join(haddock_output_dir, "**", "*.pdb*"), recursive=True)
@@ -176,7 +181,6 @@ top_clusters = 5
     if haddock_models:
         top_docked_pdb = sorted(haddock_models)[0]
         
-        # Dynamic unzipping handler if HADDOCK output is compressed
         if top_docked_pdb.endswith(".gz"):
             unzipped_pdb = top_docked_pdb.replace(".gz", "")
             with gzip.open(top_docked_pdb, 'rb') as f_in:
@@ -184,18 +188,20 @@ top_clusters = 5
                     f_out.write(f_in.read())
             top_docked_pdb = unzipped_pdb
         
-        # Because we flattened everything, Target is always A and Binder is always B!
         prodigy_cmd = f"{local_prodigy_bin} {top_docked_pdb} --selection A B"
         result = subprocess.run(prodigy_cmd, shell=True, capture_output=True, text=True)
         
-        delta_g = 0.0
+        delta_g = 999.0
         kd = "N/A"
         for line in result.stdout.split('\n'):
             if "predicted binding affinity" in line.lower():
-                delta_g = float(line.split()[-1])
+                try:
+                    delta_g = float(line.split()[-1])
+                except:
+                    pass
             if "predicted dissociation constant" in line.lower():
                 kd = line.split()[-1]
                 
-        print(f"   ✅ DOCKED AFFINITY (PRODIGY): {delta_g} kcal/mol | Kd: {kd}")
+        print(f"   [SUCCESS] DOCKED AFFINITY (PRODIGY): {delta_g} kcal/mol | Kd: {kd}", flush=True)
     else:
-        print("    Error: HADDOCK3 failed to produce structural outputs. Review the stage logs above.")
+        print("   [ERROR] HADDOCK3 failed to produce structural outputs. Review the stage logs above.", flush=True)
