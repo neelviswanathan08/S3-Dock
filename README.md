@@ -102,7 +102,7 @@ The entire pipeline is controlled via the `config.yaml` file. Before running, ed
 - **Universal Structural Pocket Constraints:** Define the `pocket_contacts` using `[Integer, "Chain"]` format to allow the Phase 2 filter to isolate the binding cleft accurately.
 - **Molecular Dynamics:** Configure `md_simulation_steps` and thermodynamics intervals to control your OpenMM production depth.
 
-## 🚀 Usage
+## Usage
 
 Place your target structures (e.g., `target_receptor.cif`) into the `inputs/` directory.
 
