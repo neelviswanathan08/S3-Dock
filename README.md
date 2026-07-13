@@ -2,7 +2,7 @@
 
 S3-Dock is an automated, computational structural pipeline designed for folding, docking, simulating, and validating optimized peptide candidates for binding with target proteins.
 
-The platform connects evolutionary sequence design, deep-learning structural prediction (Boltz-2), blind docking of designed sequence (HADDOCK), solvent molecular dynamics and thermodynamic energy of protein complex into a unified, fault-tolerant workflow.
+The platform connects evolutionary sequence design, deep-learning structural prediction (Boltz-2), blind docking of designed sequence (HADDOCK), solvent molecular dynamics (Open-MM) and thermodynamic energy (MM-GBSA/MM-PBSA) of protein complex into a unified, fault-tolerant workflow.
 
 ##  Table of Contents
 
