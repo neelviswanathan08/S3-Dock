@@ -46,6 +46,7 @@ dedupe_output: True
 # --- 3. DYNAMIC RECEPTOR TARGET SETTINGS ---
 target_cif: "inputs/target_receptor.cif"
 binder_chain_id: "K"
+is_fibril: true
 
 target_chains_and_sequences:
   A: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
