@@ -5,7 +5,8 @@ channels:
   - defaults
 dependencies:
   - python=3.12  # Mature, high-performance production version for MD engines
-  - cuda-toolkit  # Dynamically interfaces with the host GPU drivers
+  - cuda-toolkit 
+  - conda-forge::mdtraj # Dynamically interfaces with the host GPU drivers
   - openmm=8.5.2  # Unlocked build string to allow adaptive hardware matching
   - mdtraj=1.11.1
   - pdbfixer=1.12

@@ -3,7 +3,7 @@
 # =====================================================================
 
 # --- 1. FACTORY RUN SETTINGS ---
-run_folder_name: "LL37_Peptide"
+run_folder_name: "PSMAlpha3"
 num_seeds:  150              # Default to 1000 tracks (Ignored if benchmark_mode is true)
 samples_per_seed: 1           # 1 structural prediction per fasta seed entry
 max_discovery_loops: 5

@@ -10,6 +10,7 @@ import warnings
 import tempfile
 import numpy as np
 from Bio.PDB import MMCIFParser, MMCIFIO, Select
+from Bio.SeqUtils.ProtParam import ProteinAnalysis
 from Bio import BiopythonWarning
 
 warnings.simplefilter('ignore', BiopythonWarning)
@@ -34,19 +35,18 @@ master_csv = os.path.join(final_dir, f"caps_2_{run_name}_master_metrics.csv")
 target_cif = os.path.abspath(os.path.join(SCRIPT_DIR, "..", config['target_cif']))
 binder_id = config['binder_chain_id']
 target_chains = list(config['target_chains_and_sequences'].keys())
-is_fibril_mode = config.get('is_fibril', True) # True = Rigid RMSD/Atom checks, False = US-Align/TM-Score
+is_fibril_mode = config.get('is_fibril', True)
+
+# 🚨 THE FIX: No more forced 1000 variations. We listen strictly to your config.yaml
+samples = config.get('samples_per_seed', 1)
 
 if config.get('benchmark_mode', False):
-    samples = 1000
-    print("[BENCHMARK ROUTINE] Matrix forced to 1000 structural diffusion variations.", flush=True)
-else:
-    samples = config.get('samples_per_seed', 1)
+    print(f"[BENCHMARK ROUTINE] Processing 1 prediction per seed across fasta library...", flush=True)
 
 # ---------------------------------------------------------------------------
 # STRUCTURE SELECTORS & AUXILIARY HELPERS
 # ---------------------------------------------------------------------------
 class TargetSelect(Select):
-    """Filter to isolate the target receptor and drop the designer binder"""
     def accept_chain(self, chain):
         return chain.id != binder_id
 
@@ -62,7 +62,7 @@ def get_chain_centroids(model, chains):
     return centroids, coords_cache
 
 # ---------------------------------------------------------------------------
-# METHOD 1: RIGID COORDINATE RMSD & DISLOCATED ATOMS CHECK (For Symmetrical Fibrils)
+# METHOD 1: RIGID COORDINATE RMSD & DISLOCATED ATOMS CHECK
 # ---------------------------------------------------------------------------
 def check_smart_holistic_similarity(pred_cif_path, ref_cif_path):
     try:
@@ -111,7 +111,7 @@ def check_smart_holistic_similarity(pred_cif_path, ref_cif_path):
         return 999.0, 999
 
 # ---------------------------------------------------------------------------
-# METHOD 2: TAIL-TOLERANT US-ALIGN TM-SCORE EVALUATION (For Globular Monomers)
+# METHOD 2: TAIL-TOLERANT US-ALIGN TM-SCORE EVALUATION
 # ---------------------------------------------------------------------------
 def calculate_oligomeric_tm_score(pred_cif_path, ref_cif_path):
     try:
@@ -199,15 +199,11 @@ def run_prodigy_scoring(cif_path, model_id):
             if "predicted binding affinity" in line.lower():
                 try: 
                     delta_g = float(line.split()[-1])
-                except: 
-                    pass
+                except: pass
             if "predicted dissociation constant" in line.lower(): 
                 kd_str = line.split()[-1]
                 
-        # Natively calculate molar Kd from Delta G to avoid parsing scientific notation variations
         if delta_g != 999.0:
-            # Kd = exp(dG / (R * T))
-            # R = 0.0019872 kcal/(mol*K), T = 298.15 K
             kd_molar = np.exp(delta_g / (0.0019872 * 298.15))
             
         return delta_g, kd_str, kd_molar
@@ -231,16 +227,15 @@ if not os.path.exists(fasta_bridge_path):
     print(f"[ERROR] Could not find library file at {fasta_bridge_path}.", flush=True)
     exit(1)
 
-# Initialize global candidate pool to track structural and affinity standouts
 global_candidates = []
-
 jobs = parse_fasta(fasta_bridge_path)
+
 if not os.path.exists(master_csv):
     os.makedirs(final_dir, exist_ok=True)
     with open(master_csv, "w", newline="") as f:
         csv.writer(f).writerow([
-            "Model_ID", "Seed_ID", "Boltz_ipTM", "Is_Rigid_Fibril_Mode", 
-            "Structural_Metric_Score", "3D_Helicity_Score", 
+            "Model_ID", "Seed_ID", "Binder_Sequence", "Seq_Length", "MW_kDa", "pI", "GRAVY",
+            "Boltz_ipTM", "Is_Rigid_Fibril_Mode", "Structural_Metric_Score", "3D_Helicity_Score", 
             "PRODIGY_dG_kcal_mol", "PRODIGY_Kd_Text", "PRODIGY_Kd_Molar_Value", "Status"
         ])
 
@@ -249,6 +244,16 @@ for idx, (seq_id, sequence) in enumerate(jobs, 1):
     design_dir = os.path.join(run_dir, seq_id)
     os.makedirs(design_dir, exist_ok=True)
     yaml_filename = os.path.join(design_dir, f"{seq_id}.yaml")
+    
+    # --- CALCULATE SEQUENCE PROPERTIES ---
+    try:
+        pa = ProteinAnalysis(sequence.replace("X", ""))
+        seq_len = len(sequence)
+        mw = round(pa.molecular_weight() / 1000.0, 2)
+        pi = round(pa.isoelectric_point(), 2)
+        gravy = round(pa.gravy(), 3)
+    except:
+        seq_len, mw, pi, gravy = len(sequence), 0.0, 0.0, 0.0
     
     yaml_lines = ["version: 1", "sequences:"]
     for chain, seq in config['target_chains_and_sequences'].items():
@@ -275,8 +280,14 @@ for idx, (seq_id, sequence) in enumerate(jobs, 1):
     if not generated_models:
         print(f"[INFO] Booting Boltz-2 Engine to generate {samples} structural samples...", flush=True)
         boltz_cmd = f"{boltz_bin} predict {yaml_filename} --use_msa_server --use_potentials --out_dir {design_dir} --recycling_steps 10 --diffusion_samples {samples} --override"
+        
+        # 🚨 SMART SILENCER: Hides standard output, but captures and prints errors if it crashes!
         process = subprocess.run(boltz_cmd, shell=True, capture_output=True, text=True)
-        if process.returncode != 0: continue
+        
+        if process.returncode != 0: 
+            print(f"   -> [CRITICAL ERROR] Boltz engine crashed for {seq_id}!", flush=True)
+            print(f"   -> [ERROR DETAILS] {process.stderr.strip()}", flush=True)
+            continue
         
         for root, _, files in os.walk(design_dir):
             for file in files:
@@ -305,15 +316,12 @@ for idx, (seq_id, sequence) in enumerate(jobs, 1):
                         elif f"model_{model_num}" in data: iptm_score = float(data[f"model_{model_num}"].get("iptm", 0.0))
                     except: pass
 
-        # SCREEN ALL GENERATED STRUCTURES VIA THERMODYNAMICS FIRST (PRODIGY)
         helicity_score = calculate_3d_helicity_score(best_cif_path)
         dG, Kd_text, Kd_molar = run_prodigy_scoring(best_cif_path, model_id)
         
-        # DUAL-MODE VALIDATION FILTER (True = Rigid RMSD/Atom checks, False = US-Align/TM-Score)
         passed_structure_filter = True
         
         if is_fibril_mode:
-            # Fibril Mode: Brutal Coordinate Hungarian RMSD & Bad Atom Filtering
             global_rmsd, bad_atoms = check_smart_holistic_similarity(best_cif_path, target_cif)
             score_metric = global_rmsd
             max_bad_atoms = config.get('max_bad_atoms', 350)
@@ -326,7 +334,6 @@ for idx, (seq_id, sequence) in enumerate(jobs, 1):
             else:
                 status_msg = f"PASSED (RMSD: {global_rmsd:.2f}A)"
         else:
-            # Globular Mode: Tail-tolerant US-Align TM-Score
             score_metric = calculate_oligomeric_tm_score(best_cif_path, target_cif)
             if score_metric < tm_cutoff:
                 passed_structure_filter = False
@@ -335,41 +342,37 @@ for idx, (seq_id, sequence) in enumerate(jobs, 1):
             else:
                 status_msg = f"PASSED (TM-Score: {score_metric:.3f})"
 
-        # Export ALL structural metrics and PRODIGY energy affinities immediately to Master Metrics CSV
+        # Export ALL structural/sequence metrics immediately
         with open(master_csv, "a", newline="") as f:
             csv.writer(f).writerow([
-                model_id, seq_id, iptm_score, is_fibril_mode, 
-                round(score_metric, 3), helicity_score, dG, Kd_text, f"{Kd_molar:.3e}", status_msg
+                model_id, seq_id, sequence, seq_len, mw, pi, gravy,
+                iptm_score, is_fibril_mode, round(score_metric, 3), 
+                helicity_score, dG, Kd_text, f"{Kd_molar:.3e}", status_msg
             ])
 
-        # If passed the structural filter gate, add to the pool for final global champion sorting
         if passed_structure_filter and dG != 999.0:
             global_candidates.append({
                 'path': best_cif_path, 'id': model_id, 'seq_id': seq_id, 'iptm': iptm_score, 
                 'metric': score_metric, 'helicity': helicity_score, 'dG': dG, 'Kd_text': Kd_text, 'Kd_molar': Kd_molar
             })
             metric_label = "RMSD" if is_fibril_mode else "TM-Score"
-            print(f"   -> [EVALUATED] {model_id} | dG: {dG} kcal/mol | Kd: {Kd_text} ({Kd_molar:.3e} M) | {metric_label}: {score_metric:.3f}", flush=True)
+            print(f"   -> [EVALUATED] {model_id} | dG: {dG} kcal/mol | Kd: {Kd_text} | {metric_label}: {score_metric:.3f} | pI: {pi}", flush=True)
 
     print("----------------------------------------------------", flush=True)
 
-# =====================================================================
-# GLOBAL CHAMPION SELECTION (EXECUTES ONLY ONCE AT THE END OF PIPELINE)
-# =====================================================================
 if os.path.exists(final_dir): 
-    shutil.rmtree(final_dir)
-os.makedirs(final_dir, exist_ok=True)
+    pass
+else:
+    os.makedirs(final_dir, exist_ok=True)
 
 if global_candidates:
-    # Sort ALL structurally valid candidates across ALL seeds strictly by dG (strongest affinity)
     global_candidates.sort(key=lambda x: float(x['dG']))
     top_design = global_candidates[0]
     metric_label = "RMSD" if is_fibril_mode else "TM-Score"
     
     print(f"\n[GLOBAL CHAMPION] Selected Absolute Best Candidate from total library run: {top_design['id']}", flush=True)
-    print(f"                  dG: {top_design['dG']} kcal/mol | Kd: {top_design['Kd_text']} ({top_design['Kd_molar']:.3e} M) | {metric_label}: {top_design['metric']:.3f}\n", flush=True)
+    print(f"                  dG: {top_design['dG']} kcal/mol | Kd: {top_design['Kd_text']} | {metric_label}: {top_design['metric']:.3f}\n", flush=True)
     
-    # Push the absolute champion forward to the final directory for HADDOCK refinement
     shutil.copy(top_design['path'], os.path.join(final_dir, f"{top_design['id']}_best.cif"))
 else:
     print(f"\n[WARNING] No structural variations across any seeds passed validation gates.", flush=True)

@@ -19,7 +19,7 @@ existing_ld = os.environ.get("LD_LIBRARY_PATH", "")
 os.environ["LD_LIBRARY_PATH"] = ":".join(cuda_paths) + (f":{existing_ld}" if existing_ld else "")
 
 print("====================================================", flush=True)
-print("[PHASE 4] OPENMM EXTREME-HT PRODUCTION MD RUN", flush=True)
+print("[PHASE 4] OPENMM EXTREME-HT PRODUCTION MD RUN & POST-PROCESSING", flush=True)
 print("====================================================", flush=True)
 print(f"[PATH ENFORCER] Injected CUDA Library Paths: {os.environ['LD_LIBRARY_PATH']}", flush=True)
 print("[SYSTEM] Initializing structural biology engines...", flush=True)
@@ -85,106 +85,123 @@ for model_name in os.listdir(haddock_dir):
     sys.stdout.flush()
 
     nc_path = os.path.join(model_md_dir, "trajectory.nc")
-    try:
-        print("  [SYSTEM] Repairing structural topology and adding caps via PDBFixer...", flush=True)
-        fixer = PDBFixer(filename=start_pdb_path)
-        fixer.findMissingResidues()
-        fixer.findNonstandardResidues()
-        fixer.replaceNonstandardResidues()
-        fixer.findMissingAtoms()
-        fixer.addMissingAtoms()
-        fixer.addMissingHydrogens(7.4)
-
-        print("  [SYSTEM] Applying AMBER14 forcefield parameters...", flush=True)
-        forcefield = app.ForceField('amber14-all.xml', 'amber14/tip3pfb.xml')
-        modeller = app.Modeller(fixer.topology, fixer.positions)
-        
-        print("  [SYSTEM] Packing explicit solvent box (1.0 nm pad + 0.15M NaCl)...", flush=True)
-        modeller.addSolvent(forcefield, padding=1.0*unit.nanometers, ionicStrength=0.15*unit.molar)
-
-        cif_path = os.path.join(model_md_dir, "topology_template.cif")
-        print(f"  [SYSTEM] Writing immutable mmCIF template topology map...", flush=True)
-        with open(cif_path, 'w') as f:
-            app.PDBxFile.writeFile(modeller.topology, modeller.positions, f)
-
-        print("  [SYSTEM] Compiling system physics equations (PME method)...", flush=True)
-        system = forcefield.createSystem(modeller.topology, 
-                                         nonbondedMethod=app.PME, 
-                                         nonbondedCutoff=1.0*unit.nanometers, 
-                                         constraints=app.HBonds)
-        
-        # 1 fs timestep ensures rock-solid integration stability under any GPU platform
-        integrator = mm.LangevinMiddleIntegrator(target_temp*unit.kelvin, 1/unit.picosecond, 0.001*unit.picoseconds)
-        
-        available_platforms = [mm.Platform.getPlatform(i).getName() for i in range(mm.Platform.getNumPlatforms())]
-        print(f"  [DIAGNOSTIC] All active OpenMM platforms found: {available_platforms}", flush=True)
-        
-        simulation = None
-        
-        if 'CUDA' in available_platforms:
-            try:
-                platform = mm.Platform.getPlatformByName('CUDA')
-                properties = {'CudaPrecision': 'mixed'}
-                simulation = app.Simulation(modeller.topology, system, integrator, platform, properties)
-                simulation.context.setPositions(modeller.positions)
-                simulation.context.getState(getEnergy=True)
-                print("  [HARDWARE] Successfully locked computing framework to NVIDIA CUDA core array.", flush=True)
-            except Exception as e:
-                print(f"  [HARDWARE WARNING] CUDA acceleration context rejected: {e}", flush=True)
-                print("  [HARDWARE] Activating automated recovery sequence...", flush=True)
-                simulation = None
-        
-        if simulation is None and 'OpenCL' in available_platforms:
-            try:
-                print("  [HARDWARE] Initializing alternative OpenCL GPU compilation matrix...", flush=True)
-                platform = mm.Platform.getPlatformByName('OpenCL')
-                simulation = app.Simulation(modeller.topology, system, integrator, platform)
-                simulation.context.setPositions(modeller.positions)
-                simulation.context.getState(getEnergy=True)
-                print("  [HARDWARE] Success! Secure hardware lock established via OpenCL GPU driver.", flush=True)
-            except Exception as ocl_err:
-                print(f"  [HARDWARE WARNING] OpenCL tracking matrix compilation failed: {ocl_err}", flush=True)
-                simulation = None
-
-        if simulation is None:
-            simulation = app.Simulation(modeller.topology, system, integrator)
-            simulation.context.setPositions(modeller.positions)
-            print("  [HARDWARE] Critical Warning: Operating on slow fallback CPU architecture.", flush=True)
-
-        print("  [SYSTEM] Relaxing system matrix to clear atomic overlaps...", flush=True)
-        sys.stdout.flush()
-        simulation.minimizeEnergy()
-        print("  [SUCCESS] System structural grid stabilized successfully.", flush=True)
-
-        # CRITICAL STABILITY FIX: Distribute initial velocities to prevent thermal shock
-        print(f"  [SYSTEM] Initializing Maxwell-Boltzmann velocities at {target_temp}K...", flush=True)
-        simulation.context.setVelocitiesToTemperature(target_temp*unit.kelvin)
-
-        checkpoint_path = os.path.join(model_md_dir, "production_failsafe.chk")
-        print(f"  [SYSTEM] Initializing high-speed NetCDF trajectory stream to: {os.path.basename(nc_path)}", flush=True)
-
+    cif_path = os.path.join(model_md_dir, "topology_template.cif")
+    
+    # 🚨 SMART BYPASS: Skip the OpenMM math if the trajectory already exists!
+    if os.path.exists(nc_path) and os.path.exists(cif_path):
+        print("  [SMART RESUME] Existing trajectory discovered. Bypassing 6-hour MD simulation.", flush=True)
+    else:
         try:
-            import parmed
-            simulation.reporters.append(parmed.openmm.NetCDFReporter(nc_path, log_interval))
-        except ImportError:
-            from mdtraj.reporters import NetCDFReporter as SafeNCReporter
-            simulation.reporters.append(SafeNCReporter(nc_path, log_interval))
+            print("  [SYSTEM] Repairing structural topology and adding caps via PDBFixer...", flush=True)
+            fixer = PDBFixer(filename=start_pdb_path)
+            fixer.findMissingResidues()
+            fixer.findNonstandardResidues()
+            fixer.replaceNonstandardResidues()
+            fixer.findMissingAtoms()
+            fixer.addMissingAtoms()
+            fixer.addMissingHydrogens(7.4)
 
-        simulation.reporters.append(app.CheckpointReporter(checkpoint_path, checkpoint_interval))
-        simulation.reporters.append(app.StateDataReporter(sys.stdout, log_interval, step=True, 
-                                                          potentialEnergy=True, temperature=True, speed=True))
+            print("  [SYSTEM] Applying AMBER14 forcefield parameters...", flush=True)
+            forcefield = app.ForceField('amber14-all.xml', 'amber14/tip3pfb.xml')
+            modeller = app.Modeller(fixer.topology, fixer.positions)
+            
+            print("  [SYSTEM] Packing explicit solvent box (1.0 nm pad + 0.15M NaCl)...", flush=True)
+            modeller.addSolvent(forcefield, padding=1.0*unit.nanometers, ionicStrength=0.15*unit.molar)
 
-        print(f"  [RUN] Executing {total_steps} calculation timesteps...", flush=True)
-        sys.stdout.flush()
-        simulation.step(total_steps)
-        print(f"  [SUCCESS] Trajectory processing complete for {model_name}!", flush=True)
-        
-    except Exception as e:
-        print(f"  [ERROR] OpenMM production engine failed for {model_name}: {e}", flush=True)
-        # DEFENSIVE PROGRAMMING: Purge incomplete trajectories so Phase 5 doesn't ingest corruption
-        if os.path.exists(nc_path):
-            try: os.remove(nc_path)
-            except: pass
+            print(f"  [SYSTEM] Writing immutable mmCIF template topology map...", flush=True)
+            with open(cif_path, 'w') as f:
+                app.PDBxFile.writeFile(modeller.topology, modeller.positions, f)
+
+            print("  [SYSTEM] Compiling system physics equations (PME method)...", flush=True)
+            system = forcefield.createSystem(modeller.topology, 
+                                             nonbondedMethod=app.PME, 
+                                             nonbondedCutoff=1.0*unit.nanometers, 
+                                             constraints=app.HBonds)
+            
+            integrator = mm.LangevinMiddleIntegrator(target_temp*unit.kelvin, 1/unit.picosecond, 0.001*unit.picoseconds)
+            
+            available_platforms = [mm.Platform.getPlatform(i).getName() for i in range(mm.Platform.getNumPlatforms())]
+            print(f"  [DIAGNOSTIC] All active OpenMM platforms found: {available_platforms}", flush=True)
+            
+            simulation = None
+            
+            if 'CUDA' in available_platforms:
+                try:
+                    platform = mm.Platform.getPlatformByName('CUDA')
+                    properties = {'CudaPrecision': 'mixed'}
+                    simulation = app.Simulation(modeller.topology, system, integrator, platform, properties)
+                    simulation.context.setPositions(modeller.positions)
+                    simulation.context.getState(getEnergy=True)
+                    print("  [HARDWARE] Successfully locked computing framework to NVIDIA CUDA core array.", flush=True)
+                except Exception as e:
+                    print(f"  [HARDWARE WARNING] CUDA acceleration context rejected: {e}", flush=True)
+                    simulation = None
+            
+            if simulation is None and 'OpenCL' in available_platforms:
+                try:
+                    print("  [HARDWARE] Initializing alternative OpenCL GPU compilation matrix...", flush=True)
+                    platform = mm.Platform.getPlatformByName('OpenCL')
+                    simulation = app.Simulation(modeller.topology, system, integrator, platform)
+                    simulation.context.setPositions(modeller.positions)
+                    simulation.context.getState(getEnergy=True)
+                    print("  [HARDWARE] Success! Secure hardware lock established via OpenCL GPU driver.", flush=True)
+                except Exception as ocl_err:
+                    print(f"  [HARDWARE WARNING] OpenCL tracking matrix compilation failed: {ocl_err}", flush=True)
+                    simulation = None
+
+            if simulation is None:
+                simulation = app.Simulation(modeller.topology, system, integrator)
+                simulation.context.setPositions(modeller.positions)
+                print("  [HARDWARE] Critical Warning: Operating on slow fallback CPU architecture.", flush=True)
+
+            print("  [SYSTEM] Relaxing system matrix to clear atomic overlaps...", flush=True)
+            sys.stdout.flush()
+            simulation.minimizeEnergy()
+            print("  [SUCCESS] System structural grid stabilized successfully.", flush=True)
+
+            print(f"  [SYSTEM] Initializing Maxwell-Boltzmann velocities at {target_temp}K...", flush=True)
+            simulation.context.setVelocitiesToTemperature(target_temp*unit.kelvin)
+
+            checkpoint_path = os.path.join(model_md_dir, "production_failsafe.chk")
+            print(f"  [SYSTEM] Initializing high-speed NetCDF trajectory stream to: {os.path.basename(nc_path)}", flush=True)
+
+            try:
+                import parmed
+                simulation.reporters.append(parmed.openmm.NetCDFReporter(nc_path, log_interval))
+            except ImportError:
+                from mdtraj.reporters import NetCDFReporter as SafeNCReporter
+                simulation.reporters.append(SafeNCReporter(nc_path, log_interval))
+
+            simulation.reporters.append(app.CheckpointReporter(checkpoint_path, checkpoint_interval))
+            simulation.reporters.append(app.StateDataReporter(sys.stdout, log_interval, step=True, 
+                                                              potentialEnergy=True, temperature=True, speed=True))
+
+            print(f"  [RUN] Executing {total_steps} calculation timesteps...", flush=True)
+            sys.stdout.flush()
+            simulation.step(total_steps)
+            print(f"  [SUCCESS] Trajectory processing complete for {model_name}!", flush=True)
+            
+        except Exception as e:
+            print(f"  [ERROR] OpenMM production engine failed for {model_name}: {e}", flush=True)
+            if os.path.exists(nc_path):
+                try: os.remove(nc_path)
+                except: pass
+            continue # Skip centering if the run failed
+
+    # 🚨 MDTRAJ POST-PROCESSING: Trajectory Centering & PBC Wrapping
+    if os.path.exists(nc_path) and os.path.exists(cif_path):
+        print("  [SYSTEM] Wrapping Periodic Boundary Conditions and centering trajectory...", flush=True)
+        try:
+            import mdtraj as md
+            # Load the trajectory and topology into memory
+            traj = md.load(nc_path, top=cif_path)
+            # Center the complex and remove PBC split artifacts
+            traj.image_molecules(inplace=True)
+            # Overwrite the uncentered file with the pristine version
+            traj.save_netcdf(nc_path)
+            print("  [SUCCESS] Trajectory beautifully cleaned, centered, and saved!", flush=True)
+        except Exception as e:
+            print(f"  [WARNING] Trajectory centering failed: {e}", flush=True)
 
 print("----------------------------------------------------", flush=True)
-print("[PHASE 4 COMPLETE] UNIVERSAL PRODUCTION TRAJECTORIES LOADED SUCCESSFULLY!", flush=True)
+print("[PHASE 4 COMPLETE] UNIVERSAL PRODUCTION TRAJECTORIES LOADED & CENTERED SUCCESSFULLY!", flush=True)

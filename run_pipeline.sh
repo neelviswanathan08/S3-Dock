@@ -50,13 +50,11 @@ while [ $LOOP_COUNT -le $MAX_LOOPS ]; do
     if [ $LOOP_COUNT -eq 1 ] && [ -f "${RUN_DIR}/library.fasta" ]; then
         echo "   Smart Resume: Found existing library.fasta. Skipping Phase 1."
     else
-        # Run normally (Phase 1 generator will pull fresh random strings on loop)
         ./envs/boltz_env/bin/python -u scripts/01_generate_seq.py
         if [ $? -ne 0 ]; then echo " Phase 1 failed!"; exit 1; fi
     fi
 
     echo " Phase 2: Boltz-2 Structural Folding..."
-    # The Python script handles seed-level resumes internally now!
     ./envs/boltz_env/bin/python -u scripts/02_predict_struct.py
     if [ $? -ne 0 ]; then echo " Phase 2 failed!"; exit 1; fi
 
@@ -86,28 +84,19 @@ done
 if [ "$HAS_CANDIDATES" = true ]; then
     echo "---------------------------------------------------------------------"
     echo " Phase 3: Unbiased Blind Global Docking..."
-    if [ -d "${RUN_DIR}/haddock_runs" ] && find "${RUN_DIR}/haddock_runs" -name "haddock3_output" -print -quit | grep -q .; then
-        echo "   Smart Resume: Found existing HADDOCK3 outputs. Skipping Phase 3."
-    else
-        ./envs/haddock_env/bin/python -u scripts/03_blind_dock.py
-        if [ $? -ne 0 ]; then echo "Phase 3 failed!"; exit 1; fi
-    fi
+    # Python script handles its own smart resume
+    ./envs/haddock_env/bin/python -u scripts/03_blind_dock.py
+    if [ $? -ne 0 ]; then echo "Phase 3 failed!"; exit 1; fi
 
     echo " Phase 4: OpenMM Molecular Dynamics Simulation..."
-    if [ -d "${RUN_DIR}/md_simulations" ] && find "${RUN_DIR}/md_simulations" -name "trajectory.nc" -print -quit | grep -q .; then
-        echo "   Smart Resume: Found existing MD trajectories. Skipping Phase 4."
-    else
-        ./envs/openmm_env/bin/python -u scripts/04_md_simulate.py
-        if [ $? -ne 0 ]; then echo "Phase 4 failed!"; exit 1; fi
-    fi
+    # Python script skips the 6-hour MD if done, but WILL execute the MDTraj Centering
+    ./envs/openmm_env/bin/python -u scripts/04_md_simulate.py
+    if [ $? -ne 0 ]; then echo "Phase 4 failed!"; exit 1; fi
 
     echo " Phase 5: Calculating Native OpenMM MM-GBSA Free Energy..."
-    if [ -d "${RUN_DIR}/mmgbsa_results" ] && find "${RUN_DIR}/mmgbsa_results" -name "*_mmgbsa.csv" -print -quit | grep -q .; then
-        echo "   Smart Resume: Found existing Free Energy calculations. Skipping Phase 5."
-    else
-        ./envs/openmm_env/bin/python -u scripts/05_calculate_energy.py
-        if [ $? -ne 0 ]; then echo " Phase 5 failed!"; exit 1; fi
-    fi
+    # Force Python execution so updated centered coordinates recalculate cleanly
+    ./envs/openmm_env/bin/python -u scripts/05_calculate_energy.py
+    if [ $? -ne 0 ]; then echo " Phase 5 failed!"; exit 1; fi
 fi
 
 echo "---------------------------------------------------------------------"
