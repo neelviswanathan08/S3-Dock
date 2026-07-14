@@ -1,4 +1,4 @@
-# 🧬 S3-DOCK: Sequence-Structure-Simulate Docking Pipeline
+#  S3-DOCK: Sequence-Structure-Simulate Docking Pipeline
 
 **S3-Dock** is an automated, high-throughput computational biophysics pipeline designed for the end-to-end discovery, folding, docking, simulation, and validation of designer peptides against target proteins.
 
@@ -6,7 +6,7 @@ The platform orchestrates evolutionary sequence design, deep-learning structural
 
 ---
 
-## ✨ Key Features
+##  Key Features
 
 * **Dual-Mode Structural Validation:** Switches between rigid Coordinate RMSD/Atom checks (for symmetrical fibrils) and US-Align TM-Score comparison (for globular monomers/hetero-complexes), matched to the geometry of the target.
 * **Smart Resume Architecture:** Every phase checks for existing outputs before running. If a prediction, docking run, or MD simulation already exists for a given candidate, S3-Dock skips the heavy computation and moves to post-processing.
@@ -15,7 +15,7 @@ The platform orchestrates evolutionary sequence design, deep-learning structural
 
 ---
 
-## 🏗️ Pipeline Architecture
+##  Pipeline Architecture
 
 S3-Dock executes over six specialized phases. The pipeline is fully modular — run it end-to-end or trigger individual stages.
 
@@ -34,7 +34,7 @@ S3-Dock executes over six specialized phases. The pipeline is fully modular — 
 
 ---
 
-## 📂 Repository Layout
+##  Repository Layout
 
 ```text
 S3-Dock/
@@ -60,7 +60,7 @@ S3-Dock/
 
 ---
 
-## 💻 Requirements & Installation
+##  Requirements & Installation
 
 ### Prerequisites
 
@@ -89,7 +89,7 @@ conda env create -f envs/haddock_env.yml
 
 ---
 
-## ⚙️ Configuration
+##  Configuration
 
 The pipeline is controlled via `config.yaml`. Key parameters:
 
@@ -102,7 +102,7 @@ The pipeline is controlled via `config.yaml`. Key parameters:
 
 ---
 
-## 🚀 Usage
+##  Usage
 
 Place your target structure (e.g., `target_receptor.cif`) into `inputs/` and configure `config.yaml`.
 
@@ -133,7 +133,7 @@ Each phase requires its matching conda environment:
 
 ---
 
-## 📊 Outputs & Analytics
+##  Outputs & Analytics
 
 All generated files are written to `results/[run_folder_name]/`.
 
@@ -146,6 +146,6 @@ After Phase 6 completes, `results/[run_folder_name]/final_summary/` contains:
 
 ---
 
-## 📜 License & Citation
+##  License & Citation
 
 This project is licensed under the MIT License. If you use S3-Dock in your research, please consider citing this repository.
