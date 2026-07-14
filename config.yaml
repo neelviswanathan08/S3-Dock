@@ -3,8 +3,8 @@
 # =====================================================================
 
 # --- 1. FACTORY RUN SETTINGS ---
-run_folder_name: "PSMAlpha3"
-num_seeds:  150              # Default to 1000 tracks (Ignored if benchmark_mode is true)
+run_folder_name: "testing"
+num_seeds:  5              # Default to 1000 tracks (Ignored if benchmark_mode is true)
 samples_per_seed: 1           # 1 structural prediction per fasta seed entry
 max_discovery_loops: 5
 
@@ -22,7 +22,7 @@ custom_pattern: ""
 
 # 🔬 BENCHMARK GATEKEEPER MATRIX
 # Set benchmark_mode to true to duplicate the sequence across 1000 slots and select the top 1
-benchmark_mode: true                        
+benchmark_mode: false                        
 benchmark_sequence: "MEFVAKLFKFFKDLLGKFLGNN"  # PSM-alpha-3 Control Sequence
 benchmark_samples: 150                    # Total fasta seeds to write into library.fasta
 
@@ -44,7 +44,7 @@ cooling_rate: 0.9995
 dedupe_output: True          
 
 # --- 3. DYNAMIC RECEPTOR TARGET SETTINGS ---
-target_cif: "inputs/target_receptor.cif"
+target_cif: "inputs/6CU7.cif"
 binder_chain_id: "K"
 is_fibril: true
 
@@ -92,19 +92,19 @@ max_bad_atoms: 350
 # --- 6. HADDOCK3 BLIND GLOBAL DOCKING SETTINGS ---
 rnd_haddock_seed: 100
 run_haddock: true                   
-haddock_sampling: 1000             
-haddock_seletop: 100                
-haddock_top_clusters: 10            
+haddock_sampling: 10             
+haddock_seletop: 2                
+haddock_top_clusters: 1            
 
 # --- 7. OPENMM MOLECULAR DYNAMICS SETTINGS ---
-md_simulation_steps: 50000000       # Production-scale trajectory length
-md_reporting_interval: 10000         # Yields exactly 5,000 saved trajectory frames
+md_simulation_steps: 50000       # Production-scale trajectory length
+md_reporting_interval: 1000         # Yields exactly 5,000 saved trajectory frames
 md_temperature_kelvin: 310.15       
 
 # --- 8. MMPBSA ENERGY CALCULATION SETTINGS ---
-mmpbsa_start_frame: 2500             # Excludes first 50% relaxation/burn-in window
-mmpbsa_end_frame: 5000               # Terminal frame boundaries
-mmpbsa_interval: 10                  # Samples exactly 250 production frames
+mmpbsa_start_frame: 25             # Excludes first 50% relaxation/burn-in window
+mmpbsa_end_frame: 50              # Terminal frame boundaries
+mmpbsa_interval: 5                  # Samples exactly 250 production frames
 mmpbsa_salt_concentration: 0.150
 
 # --- 9. MM-GBSA ENERGY CALCULATION SETTINGS ---
