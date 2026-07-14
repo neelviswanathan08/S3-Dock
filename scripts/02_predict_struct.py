@@ -3,23 +3,19 @@ import os
 import yaml
 import re
 import csv
-import time
 import shutil
 import subprocess
 import json
 import warnings
-import numpy as np
-from scipy.spatial.distance import cdist
-from scipy.optimize import linear_sum_assignment
-from Bio.PDB import MMCIFParser, PDBIO
-from Bio.PDB.Superimposer import Superimposer
+import tempfile
+from Bio.PDB import MMCIFParser, MMCIFIO, Select
 from Bio import BiopythonWarning
 
 warnings.simplefilter('ignore', BiopythonWarning)
 
-print("====================================================")
-print("🚀 S3-DOCK: FACTORY RUN RUNNING...")
-print("====================================================")
+print("====================================================", flush=True)
+print("[SYSTEM] S3-DOCK: PHASE 2 - STRUCTURAL SAMPLING MATRIX (US-ALIGN ENGINE)", flush=True)
+print("====================================================", flush=True)
 
 # 1. Setup absolute paths
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -38,79 +34,90 @@ target_cif = os.path.abspath(os.path.join(SCRIPT_DIR, "..", config['target_cif']
 binder_id = config['binder_chain_id']
 target_chains = list(config['target_chains_and_sequences'].keys())
 
-def get_chain_centroids(model, chains):
-    centroids = {}
-    coords_cache = {}
-    for cid in chains:
-        if cid in model:
-            atoms = [res['CA'] for res in model[cid] if 'CA' in res]
-            if atoms:
-                coords_cache[cid] = atoms
-                centroids[cid] = np.mean([a.coord for a in atoms], axis=0)
-    return centroids, coords_cache
+if config.get('benchmark_mode', False):
+    samples = 1000
+    print("[BENCHMARK ROUTINE] Matrix forced to 1000 structural diffusion variations.", flush=True)
+else:
+    samples = config.get('samples_per_seed', 1)
 
-def check_smart_holistic_similarity(pred_cif_path, ref_cif_path):
+# ---------------------------------------------------------------------------
+# REPRODUCIBLE & ULTRA-FAST US-ALIGN WRAPPER (RAM-DISK OPTIMIZED)
+# ---------------------------------------------------------------------------
+class TargetSelect(Select):
+    """Biopython filter to strip the binder out before sending to US-Align"""
+    def accept_chain(self, chain):
+        return chain.id != binder_id
+
+def calculate_oligomeric_tm_score(pred_cif_path, ref_cif_path):
     try:
-        parser = MMCIFParser(QUIET=True)
-        ref_model = parser.get_structure("ref", ref_cif_path)[0]
-        pred_model = parser.get_structure("pred", pred_cif_path)[0]
-        
-        ref_centroids, ref_atoms_cache = get_chain_centroids(ref_model, target_chains)
-        pred_centroids, pred_atoms_cache = get_chain_centroids(pred_model, target_chains)
-        
-        if len(ref_centroids) != len(target_chains) or len(pred_centroids) != len(target_chains):
-            return 999.0, 999
-            
-        ref_cids = list(ref_centroids.keys())
-        pred_cids = list(pred_centroids.keys())
-        
-        best_rms = 999.0
-        best_bad_atoms = 999
-        
-        for trial_p_cid in pred_cids:
-            sup_trial = Superimposer()
-            sup_trial.set_atoms(ref_atoms_cache[ref_cids[len(ref_cids)//2]], pred_atoms_cache[trial_p_cid]) 
-            rot_trial, tran_trial = sup_trial.rotran
-            
-            rotated_p_centroids = {}
-            for p_cid in pred_cids:
-                rotated_p_centroids[p_cid] = np.dot(pred_centroids[p_cid], rot_trial) + tran_trial
+        # 1. Fully Reproducible Auto-Detection of the US-Align Binary
+        # Scans system path (Conda/Brew) first, then falls back to local compiles
+        usalign_bin = None
+        for binary_name in ["USalign", "usalign", "US-align", "us-align"]:
+            found_path = shutil.which(binary_name)
+            if found_path:
+                usalign_bin = found_path
+                break
                 
-            cost_matrix = np.zeros((len(target_chains), len(target_chains)))
-            for i, r_cid in enumerate(ref_cids):
-                for j, p_cid in enumerate(pred_cids):
-                    cost_matrix[i, j] = np.linalg.norm(ref_centroids[r_cid] - rotated_p_centroids[p_cid])
+        if not usalign_bin:
+            # Fallback local checks
+            for fallback in ["../USalign", "./USalign", "../usalign", "./usalign"]:
+                test_path = os.path.abspath(os.path.join(SCRIPT_DIR, fallback))
+                if os.path.exists(test_path):
+                    usalign_bin = test_path
+                    break
                     
-            row_ind, col_ind = linear_sum_assignment(cost_matrix)
-            all_ref_atoms = []
-            all_pred_atoms = []
-            
-            for r_idx, p_idx in zip(row_ind, col_ind):
-                r_cid = ref_cids[r_idx]
-                p_cid = pred_cids[p_idx]
-                for r_atom, p_atom in zip(ref_atoms_cache[r_cid], pred_atoms_cache[p_cid]):
-                    all_ref_atoms.append(r_atom)
-                    all_pred_atoms.append(p_atom)
-                    
-            sup_final = Superimposer()
-            sup_final.set_atoms(all_ref_atoms, all_pred_atoms)
-            
-            rot_f, tran_f = sup_final.rotran
-            bad_atoms = 0
-            
-            for r_atom, p_atom in zip(all_ref_atoms, all_pred_atoms):
-                t_coord = np.dot(p_atom.coord, rot_f) + tran_f
-                if np.linalg.norm(r_atom.coord - t_coord) > config['dist_threshold']:
-                    bad_atoms += 1
-                    
-            if sup_final.rms < best_rms:
-                best_rms = sup_final.rms
-                best_bad_atoms = bad_atoms
-                
-        return best_rms, best_bad_atoms
-    except Exception:
-        return 999.0, 999
+        if not usalign_bin:
+            print("   -> [CRITICAL ERROR] US-align executable not found in PATH or project directory!", flush=True)
+            print("      Please run: 'conda install -c bioconda usalign' or compile locally.", flush=True)
+            return 0.0
 
+        # 2. Lightning-Speed Shared Memory (RAM-Disk) Temp Space Selection
+        # On Linux, /dev/shm is a virtual memory RAM disk. Writing here bypasses disk storage.
+        ram_disk_dir = "/dev/shm"
+        if os.path.exists(ram_disk_dir) and os.access(ram_disk_dir, os.W_OK):
+            temp_dir = tempfile.mkdtemp(dir=ram_disk_dir)
+        else:
+            temp_dir = tempfile.mkdtemp() # Standard fallback if RAM disk is unavailable/restricted
+
+        # 3. Strip the binder and write the target-only structure straight to RAM
+        parser = MMCIFParser(QUIET=True)
+        pred_struct = parser.get_structure("pred", pred_cif_path)
+        
+        temp_cif = os.path.join(temp_dir, "temp_target_only.cif")
+        io = MMCIFIO()
+        io.set_structure(pred_struct)
+        io.save(temp_cif, TargetSelect())
+        
+        # 4. Execute the binary via optimized subprocess call
+        cmd = [usalign_bin, temp_cif, ref_cif_path]
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        
+        tm_score = 0.0
+        for line in result.stdout.split('\n'):
+            if "TM-score=" in line:
+                try:
+                    score = float(line.split()[1])
+                    # Ensure we normalize based on the reference structure
+                    if "Structure_2" in line:
+                        tm_score = score
+                        break
+                    elif score > tm_score:
+                        tm_score = score
+                except:
+                    pass
+                    
+        # 5. Clean up RAM space
+        shutil.rmtree(temp_dir, ignore_errors=True)
+            
+        return tm_score
+    except Exception as e:
+        print(f"   -> [ERROR] US-Align execution failed: {e}", flush=True)
+        return 0.0
+
+# ---------------------------------------------------------------------------
+# AUXILIARY SCORING ENGINES
+# ---------------------------------------------------------------------------
 def calculate_3d_helicity_score(pred_cif_path, chain_id=binder_id):
     try:
         parser = MMCIFParser(QUIET=True)
@@ -154,43 +161,18 @@ def parse_fasta(path):
         if current_id: seqs.append((current_id, "".join(current_seq)))
     return seqs
 
-def format_time(seconds):
-    hours, remainder = divmod(int(seconds), 3600)
-    minutes, secs = divmod(remainder, 60)
-    return f"{hours}h {minutes}m {secs}s"
-
 if not os.path.exists(fasta_bridge_path):
-    print(f"❌ ERROR: Could not find bridge library at {fasta_bridge_path}. Stage 1 failed.")
+    print(f"[ERROR] Could not find library file at {fasta_bridge_path}.", flush=True)
     exit(1)
 
 jobs = parse_fasta(fasta_bridge_path)
-
 if not os.path.exists(master_csv):
     os.makedirs(final_dir, exist_ok=True)
     with open(master_csv, "w", newline="") as f:
-        csv.writer(f).writerow(["Model_ID", "Seed_ID", "Boltz_ipTM", "Global_Backbone_RMSD", "Dislocated_Atoms", "3D_Helicity_Score", "PRODIGY_dG_kcal_mol", "PRODIGY_Kd_M"])
-
-print(" Loading machine learning libraries (this takes a few seconds)...", flush=True)
-print(" Libraries loaded. Starting Discovery Queue...\n", flush=True)
-
-start_time = time.time()
+        csv.writer(f).writerow(["Model_ID", "Seed_ID", "Boltz_ipTM", "Oligomeric_TM_Score", "3D_Helicity_Score", "PRODIGY_dG_kcal_mol", "PRODIGY_Kd_M"])
 
 for idx, (seq_id, sequence) in enumerate(jobs, 1):
-    
-    # Calculate ETA for the UI
-    if idx == 1:
-        eta_str = "Calculating... (Waiting for first fold to calibrate speed)"
-    else:
-        avg_time = (time.time() - start_time) / (idx - 1)
-        eta = avg_time * (len(jobs) - idx + 1)
-        eta_str = f"~{format_time(eta)} remaining for entire run"
-
-    print(f" [{idx}/{len(jobs)}] DISCOVERY QUEUE: {seq_id}", flush=True)
-    print(f"    Sequence : {sequence}", flush=True)
-    print(f"    Length   : {len(sequence)} AA", flush=True)
-    print(f"    Est. Time: {eta_str}", flush=True)
-    print(f"     Status  : Booting Boltz-2 Deep Learning Engine (Folding in progress... this takes time!)", flush=True)
-    
+    print(f"[INFO] Processing Target Workspace Component: {seq_id}", flush=True)
     design_dir = os.path.join(run_dir, seq_id)
     os.makedirs(design_dir, exist_ok=True)
     yaml_filename = os.path.join(design_dir, f"{seq_id}.yaml")
@@ -207,31 +189,33 @@ for idx, (seq_id, sequence) in enumerate(jobs, 1):
         for contact in config['pocket_contacts']: yaml_lines.append(f"        - [{contact[0]}, {contact[1]}]")
         yaml_lines.append(f"      max_distance: {config.get('max_distance_threshold', 5.0)}")
 
-    with open(yaml_filename, "w") as f:
-        f.write("\n".join(yaml_lines))
+    with open(yaml_filename, "w") as f: f.write("\n".join(yaml_lines))
         
     boltz_bin = os.path.join(os.path.dirname(sys.executable), "boltz")
-    samples = config.get('samples_per_seed', 1)
-    
-    boltz_cmd = f"{boltz_bin} predict {yaml_filename} --use_msa_server --use_potentials --out_dir {design_dir} --recycling_steps 10 --diffusion_samples {samples} --override"
-    
-    # Run Boltz silently but capture output to catch errors
-    process = subprocess.run(boltz_cmd, shell=True, capture_output=True, text=True)
-    
-    if process.returncode != 0:
-        print(f"\n [CRITICAL BOLTZ CRASH] Boltz failed to execute for {seq_id}!\n")
-        print(f"--- ERROR LOG START ---\n{process.stderr}\n--- ERROR LOG END ---", flush=True)
-        continue
     
     generated_models = []
-    # 🚨 SEED-LEVEL SMART RESUME: Check if Boltz already ran for this specific seed
     for root, _, files in os.walk(design_dir):
         for file in files:
-            if file.endswith(".cif") and file != os.path.basename(target_cif):
+            if file.endswith(".cif") and file != os.path.basename(target_cif) and "_target_only" not in file: 
                 generated_models.append(os.path.join(root, file))
-    
+                
+    if not generated_models:
+        print(f"[INFO] Booting Boltz-2 Engine to generate {samples} structural samples...", flush=True)
+        boltz_cmd = f"{boltz_bin} predict {yaml_filename} --use_msa_server --use_potentials --out_dir {design_dir} --recycling_steps 10 --diffusion_samples {samples} --override"
+        process = subprocess.run(boltz_cmd, shell=True, capture_output=True, text=True)
+        if process.returncode != 0: continue
+        
+        for root, _, files in os.walk(design_dir):
+            for file in files:
+                if file.endswith(".cif") and file != os.path.basename(target_cif) and "_target_only" not in file: 
+                    generated_models.append(os.path.join(root, file))
+    else:
+        print(f"[INFO] Outputs found for {seq_id}. Skipping Boltz-2 prediction.", flush=True)
+
     valid_candidates = []
-    print(f"    Folding Complete! Evaluating {len(generated_models)} generated models for {seq_id}:", flush=True)
+    print(f"[INFO] Screening all {len(generated_models)} generated models via US-Align & PRODIGY Matrix...", flush=True)
+    
+    tm_cutoff = config.get('tm_threshold', 0.75)
     
     for best_cif_path in generated_models:
         filename = os.path.basename(best_cif_path)
@@ -249,33 +233,27 @@ for idx, (seq_id, sequence) in enumerate(jobs, 1):
                         elif f"model_{model_num}" in data: iptm_score = float(data[f"model_{model_num}"].get("iptm", 0.0))
                     except: pass
 
-        global_rmsd, bad_atoms = check_smart_holistic_similarity(best_cif_path, target_cif)
-        if global_rmsd > config['rmsd_cutoff'] or bad_atoms > config['max_bad_atoms']:
+        # 🚨 TRUE RAM-DISK ACCELERATED US-ALIGN SCORE CALCULATION 
+        tm_score = calculate_oligomeric_tm_score(best_cif_path, target_cif)
+        
+        if tm_score < tm_cutoff: 
+            print(f"   -> [REJECTED] {model_id} failed TM-Score threshold (Score: {tm_score:.3f} < {tm_cutoff})", flush=True)
             continue
             
         helicity_score = calculate_3d_helicity_score(best_cif_path)
         dG, Kd = run_prodigy_scoring(best_cif_path, model_id)
         
-        valid_candidates.append({
-            'path': best_cif_path, 'id': model_id, 'iptm': iptm_score,
-            'rmsd': global_rmsd, 'bad_atoms': bad_atoms, 'helicity': helicity_score,
-            'dG': dG, 'Kd': Kd
-        })
+        if dG != 999.0:
+            valid_candidates.append({'path': best_cif_path, 'id': model_id, 'iptm': iptm_score, 'tm_score': tm_score, 'helicity': helicity_score, 'dG': dG, 'Kd': Kd})
+            print(f"   -> [EVALUATED] {model_id} | dG: {dG} kcal/mol | TM-Score: {tm_score:.3f}", flush=True)
 
     if valid_candidates:
-        valid_candidates.sort(key=lambda x: x['dG'])
+        valid_candidates.sort(key=lambda x: float(x['dG']))
         top_design = valid_candidates[0]
-        
-        print(f"    TOP MODEL: {top_design['id']} | dG: {top_design['dG']} kcal/mol | ipTM: {top_design['iptm']:.2f} | Kd: {top_design['Kd']}")
-
+        print(f"[CHAMPION] Selected Best Conformational State: {top_design['id']} | dG: {top_design['dG']} kcal/mol | TM-Score: {top_design['tm_score']:.3f}", flush=True)
         with open(master_csv, "a", newline="") as f:
-            csv.writer(f).writerow([top_design['id'], seq_id, top_design['iptm'], round(top_design['rmsd'], 2), top_design['bad_atoms'], top_design['helicity'], top_design['dG'], top_design['Kd']])
-            
+            csv.writer(f).writerow([top_design['id'], seq_id, top_design['iptm'], round(top_design['tm_score'], 3), top_design['helicity'], top_design['dG'], top_design['Kd']])
         shutil.copy(top_design['path'], os.path.join(final_dir, f"{top_design['id']}_best.cif"))
     else:
-        print(f"    No trajectories passed structural validation limits.")
-
+        print(f"[WARNING] No structural variations passed validation gates.", flush=True)
     print("----------------------------------------------------", flush=True)
-
-if not os.path.exists(final_dir) or not os.listdir(final_dir):
-    print(" PHASE 2 COMPLETE: No sequences survived the structural gatekeepers.", flush=True)
