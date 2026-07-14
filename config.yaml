@@ -3,7 +3,7 @@
 # =====================================================================
 
 # --- 1. FACTORY RUN SETTINGS ---
-run_folder_name: "testing"
+run_folder_name: "test_run"
 num_seeds:  5              # Default to 1000 tracks (Ignored if benchmark_mode is true)
 samples_per_seed: 1           # 1 structural prediction per fasta seed entry
 max_discovery_loops: 5
@@ -46,7 +46,7 @@ dedupe_output: True
 # --- 3. DYNAMIC RECEPTOR TARGET SETTINGS ---
 target_cif: "inputs/6CU7.cif"
 binder_chain_id: "K"
-is_fibril: true
+is_fibril: false
 
 target_chains_and_sequences:
   A: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
