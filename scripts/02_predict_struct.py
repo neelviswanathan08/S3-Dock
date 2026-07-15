@@ -446,7 +446,7 @@ if global_candidates:
     global_candidates.sort(key=lambda x: float(x['dG']))
     
     # 🚨 THE TOP-K BOTTLENECK: Select the Top 3 (or fewer if less than 3 survived)
-    top_k = min(config("top_k", 3), len(global_candidates))
+    top_k = min(config.get("top_k", 3), len(global_candidates))
     metric_label = "RMSD" if is_fibril_mode else "TM-Score"
     
     print(f"\n[GLOBAL CHAMPIONS] Selected the Top {top_k} Candidates for downstream MD refinement:", flush=True)
