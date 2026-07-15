@@ -21,12 +21,12 @@ benchmark_sequence: "MEFVAKLFKFFKDLLGKFLGNN"
 benchmark_samples: 150                    
 
 # Strict Biochemical Filtering Targets
-target_net_charge: -4       
+target_net_charge: +3       
 boman_index_min: 1         
 hydrophobic_moment_target: 0.45
 
 # --- 2b. EVOLUTIONARY OPTIMIZER (MONTE CARLO) SETTINGS ---
-rng_seed: 7890         
+rng_seed: 0         
 charge_tolerance: 0.5        
 charge_weight: 10            
 boman_weight: 5              
@@ -55,11 +55,6 @@ target_chains_and_sequences:
   J: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
 
 # --- 4. UNIVERSAL STRUCTURAL POCKET CONSTRAINTS ---
-enforce_boltz_constraints: false 
-require_pocket_filter: true
-min_pocket_contacts: 3       
-max_distance_threshold: 5.0
-
 pocket_contacts:
   - ["I", 10]
   - ["I", 11]
@@ -83,6 +78,11 @@ pocket_contacts:
   - ["J", 19]
 
 # --- 5. QUALITY CONTROL GATEKEEPERS ---
+enforce_boltz_constraints: false 
+require_pocket_filter: true
+min_pocket_contacts: 3       
+max_distance_threshold: 5.0
+
 rmsd_cutoff: 3.5
 dist_threshold: 2.5
 max_bad_atoms: 350
