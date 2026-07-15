@@ -3,36 +3,30 @@
 # =====================================================================
 
 # --- 1. FACTORY RUN SETTINGS ---
-run_folder_name: "test_run"
-num_seeds:  5              # Default to 1000 tracks (Ignored if benchmark_mode is true)
-samples_per_seed: 1           # 1 structural prediction per fasta seed entry
+run_folder_name: "Test_run"
+top_k: 3                    # Number of top candidates to select globally
+num_seeds: 15               # Total sequences to generate (if benchmark_mode is false)
+samples_per_seed: 1         # 1 structural prediction per fasta seed entry
 max_discovery_loops: 5
 
 # --- 2. PEPTIDE DESIGN CONSTRAINTS ---
 peptide_length: 22
-
-# Structural Control ("helix" or "beta_sheet")
 secondary_structure: "helix"  
-
-# Chemical Property ("amphipathic", "hydrophobic", "hydrophilic")
 peptide_property: "amphipathic"
-
-# Override (Leave blank "" to let the pipeline build the H/P pattern automatically)
-custom_pattern: ""
+custom_pattern: ""          # Leave blank to build H/P pattern automatically
 
 # 🔬 BENCHMARK GATEKEEPER MATRIX
-# Set benchmark_mode to true to duplicate the sequence across 1000 slots and select the top 1
 benchmark_mode: false                        
-benchmark_sequence: "MEFVAKLFKFFKDLLGKFLGNN"  # PSM-alpha-3 Control Sequence
-benchmark_samples: 150                    # Total fasta seeds to write into library.fasta
+benchmark_sequence: "MEFVAKLFKFFKDLLGKFLGNN"  
+benchmark_samples: 150                    
 
-# Strict Biochemical Filtering Targets (Used if benchmark_mode is false)
-target_net_charge: 3       # Target electrical charge at pH 7.4
-boman_index_min: 1         # Minimum binding potential/solubility
-hydrophobic_moment_target: 0.4
+# Strict Biochemical Filtering Targets
+target_net_charge: -4       
+boman_index_min: 1         
+hydrophobic_moment_target: 0.45
 
 # --- 2b. EVOLUTIONARY OPTIMIZER (MONTE CARLO) SETTINGS ---
-rng_seed: 5         # Master RNG seed for deep learning and optimizer reproducibility
+rng_seed: 7890         
 charge_tolerance: 0.5        
 charge_weight: 10            
 boman_weight: 5              
@@ -44,9 +38,9 @@ cooling_rate: 0.9995
 dedupe_output: True          
 
 # --- 3. DYNAMIC RECEPTOR TARGET SETTINGS ---
-target_cif: "inputs/6CU7.cif"
+target_cif: "inputs/6CU7.cif" 
 binder_chain_id: "K"
-is_fibril: false
+is_fibril: true
 
 target_chains_and_sequences:
   A: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
@@ -61,7 +55,11 @@ target_chains_and_sequences:
   J: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
 
 # --- 4. UNIVERSAL STRUCTURAL POCKET CONSTRAINTS ---
+enforce_boltz_constraints: false 
+require_pocket_filter: true
+min_pocket_contacts: 3       
 max_distance_threshold: 5.0
+
 pocket_contacts:
   - ["I", 10]
   - ["I", 11]
@@ -88,24 +86,26 @@ pocket_contacts:
 rmsd_cutoff: 3.5
 dist_threshold: 2.5
 max_bad_atoms: 350
+iptm_threshold: 0.25
+tm_threshold: 0.75
 
 # --- 6. HADDOCK3 BLIND GLOBAL DOCKING SETTINGS ---
-rnd_haddock_seed: 100
+rnd_haddock_seed: 1
 run_haddock: true                   
 haddock_sampling: 10             
-haddock_seletop: 2                
-haddock_top_clusters: 1            
+haddock_seletop: 5                
+haddock_top_clusters: 2            
 
 # --- 7. OPENMM MOLECULAR DYNAMICS SETTINGS ---
-md_simulation_steps: 50000       # Production-scale trajectory length
-md_reporting_interval: 1000         # Yields exactly 5,000 saved trajectory frames
+md_simulation_steps: 50000       
+md_reporting_interval: 1000         
 md_temperature_kelvin: 310.15       
 
 # --- 8. MMPBSA ENERGY CALCULATION SETTINGS ---
-mmpbsa_start_frame: 25             # Excludes first 50% relaxation/burn-in window
-mmpbsa_end_frame: 50              # Terminal frame boundaries
-mmpbsa_interval: 5                  # Samples exactly 250 production frames
+mmpbsa_start_frame: 25             
+mmpbsa_end_frame: 50              
+mmpbsa_interval: 1                  
 mmpbsa_salt_concentration: 0.150
 
 # --- 9. MM-GBSA ENERGY CALCULATION SETTINGS ---
-mmgbsa_reporting_interval: 2.5        # Evaluates exactly 100 evenly distributed coordinates
+mmgbsa_reporting_interval: 2.5

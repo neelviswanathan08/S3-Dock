@@ -6,6 +6,7 @@ import warnings
 import numpy as np
 import mdtraj as md
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 from scipy.spatial.distance import cdist
 
 os.environ["PYTHONUNBUFFERED"] = "1"
@@ -35,6 +36,9 @@ if not os.path.exists(md_dir) or not os.listdir(md_dir):
     print("❌ ERROR: Discovery components missing. Cannot compile master report.", flush=True)
     sys.exit(1)
 
+# 🚨 BIOCHEMICAL CLASSIFICATION DICTIONARY (Handles standard and AMBER-modified naming)
+HYDROPHOBIC_RES = {'ALA', 'VAL', 'ILE', 'LEU', 'MET', 'PHE', 'TYR', 'TRP', 'PRO', 'GLY', 'CYS', 'CYX'}
+
 # 🚨 PARSE THE EXPANDED PHASE 2 MASTER METRICS CSV
 phase2_metrics = {}
 master_csv_phase2 = os.path.join(final_dir, f"caps_2_{run_name}_master_metrics.csv")
@@ -47,7 +51,6 @@ if os.path.exists(master_csv_phase2):
             for row in reader:
                 if row:
                     model_id = row[0]
-                    # Map exactly to the new 14-item Phase 2 array (after Model_ID)
                     phase2_metrics[model_id] = row[1:]
 else:
     print(f"⚠️ WARNING: Phase 2 Metrics File not discovered at {master_csv_phase2}. Columns will fall back to N/A.", flush=True)
@@ -118,25 +121,24 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
                 dg_final = np.mean(dg_vals)
                 dg_std = np.std(dg_vals)
         
-        # 🚨 MERGING LAYER: Aligning 14 columns from Phase 2
         p2_data = phase2_metrics.get(folder, ["N/A"] * 14)
         
         master_data.append([
-            folder,                   # Design_Target (Model_ID)
-            p2_data[0],               # Seed_ID
-            p2_data[1],               # Binder_Sequence
-            p2_data[2],               # Seq_Length
-            p2_data[3],               # MW_kDa
-            p2_data[4],               # pI
-            p2_data[5],               # GRAVY
-            p2_data[6],               # Boltz_ipTM
-            p2_data[7],               # Is_Rigid_Fibril_Mode
-            p2_data[8],               # Structural_Metric_Score
-            p2_data[9],               # 3D_Helicity_Score
-            p2_data[10],              # PRODIGY_dG_kcal_mol
-            p2_data[11],              # PRODIGY_Kd_Text
-            p2_data[12],              # PRODIGY_Kd_Molar_Value
-            p2_data[13],              # Status
+            folder,                   
+            p2_data[0],               
+            p2_data[1],               
+            p2_data[2],               
+            p2_data[3],               
+            p2_data[4],               
+            p2_data[5],               
+            p2_data[6],               
+            p2_data[7],               
+            p2_data[8],               
+            p2_data[9],               
+            p2_data[10],              
+            p2_data[11],              
+            p2_data[12],              
+            p2_data[13],              
             round(dg_final, 2) if dg_final != 0.0 else "N/A", 
             round(dg_std, 2) if dg_std != 0.0 else "N/A",     
             round(mean_rmsd, 2),      
@@ -144,7 +146,9 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
             round(mean_bsa, 1)        
         ])
         
-        # (Plots logic preserved untouched...)
+        # ====================================================
+        # GENERATE PLOT A: DYNAMIC BINDING HOTSPOTS
+        # ====================================================
         print("   ↳ Mapping global binding hotspots...", flush=True)
         all_chains = list(traj_dry.topology.chains)
         ligand_chain = all_chains[ligand_chain_index]
@@ -169,22 +173,35 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
             contact_counts.append(np.mean(res_contacts_per_frame))
 
         plt.figure(figsize=(12, 6))
-        colors = ['crimson' if c > 30 else 'tab:blue' for c in contact_counts]
+        
+        # 🚨 NEW: BIOCHEMICAL COLOR MAPPING FOR BAR CHART
+        colors = ['tab:orange' if res.name in HYDROPHOBIC_RES else 'tab:blue' for res in k_residues]
+        
         bars = plt.bar(k_res_labels, contact_counts, color=colors, edgecolor='black', zorder=3)
         for bar in bars:
             height = bar.get_height()
             if height > 1.0:
                 plt.text(bar.get_x() + bar.get_width()/2., height + 1.0, f'{height:.1f}', ha='center', va='bottom', fontsize=9, color='black', fontweight='bold', rotation=90)
+        
         plt.grid(axis='y', linestyle='--', alpha=0.7, zorder=0)
-        plt.title(f"Global Binding Hotspots: ({folder})", fontsize=14, pad=15)
+        plt.title(f"Biochemical Binding Hotspots: ({folder})", fontsize=14, pad=15)
         plt.xlabel("Peptide Residue", fontsize=12, fontweight='bold', labelpad=10)
         plt.ylabel(f"Average Atomic Contacts (< {CONTACT_CUTOFF} Å)", fontsize=12, fontweight='bold')
         plt.xticks(rotation=45, ha='right')
         plt.ylim(0, max(contact_counts) * 1.15 if len(contact_counts) > 0 else 10)
+        
+        # Add custom biochemical legend
+        hydrophobic_patch = mpatches.Patch(color='tab:orange', label='Hydrophobic')
+        hydrophilic_patch = mpatches.Patch(color='tab:blue', label='Polar / Charged')
+        plt.legend(handles=[hydrophobic_patch, hydrophilic_patch], loc='upper right')
+
         plt.tight_layout()
         plt.savefig(os.path.join(summary_dir, f"{folder}_binding_hotspots.png"), dpi=300)
         plt.close()
 
+        # ====================================================
+        # GENERATE PLOT B: TRULY UNIVERSAL GLOBAL INTERACTION NETWORK
+        # ====================================================
         print("   ↳ Running Global Contact Scan across all fibril chains...", flush=True)
         rec_chains = [c for c in all_chains if c.index != ligand_chain.index]
         fibril_residues = []
@@ -214,16 +231,21 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
         unique_active_x = np.unique(active_x) 
         fig, ax = plt.subplots(figsize=(12, 10))
 
+        # 🚨 NEW: BIOCHEMICAL COLOR MAPPING FOR NETWORK NODES (LEFT = PEPTIDE)
         for i, y_idx in enumerate(range(len(k_residues))):
             y_pos = len(k_residues) - i
-            ax.scatter(0, y_pos, color='tab:blue', s=150, zorder=3, edgecolor='black')
+            node_color = 'tab:orange' if k_residues[y_idx].name in HYDROPHOBIC_RES else 'tab:blue'
+            ax.scatter(0, y_pos, color=node_color, s=150, zorder=3, edgecolor='black')
             ax.text(-0.05, y_pos, k_res_labels[y_idx], ha='right', va='center', fontsize=11, fontweight='bold')
 
+        # 🚨 NEW: BIOCHEMICAL COLOR MAPPING FOR NETWORK NODES (RIGHT = RECEPTOR)
         if len(unique_active_x) > 0:
             for j, x_idx in enumerate(unique_active_x):
                 y_pos = len(k_residues) - (j * (len(k_residues) / max(1, len(unique_active_x) - 1))) if len(unique_active_x) > 1 else len(k_residues)/2
-                ax.scatter(1, y_pos, color='crimson', s=150, zorder=3, edgecolor='black')
+                node_color = 'tab:orange' if fibril_residues[x_idx].name in HYDROPHOBIC_RES else 'tab:blue'
+                ax.scatter(1, y_pos, color=node_color, s=150, zorder=3, edgecolor='black')
                 ax.text(1.05, y_pos, fib_res_labels[x_idx], ha='left', va='center', fontsize=10, fontweight='bold')
+                
                 connected_peptides = np.where(global_dist_matrix[:, x_idx] <= CONTACT_CUTOFF)[0]
                 for pep_idx in connected_peptides:
                     pep_y_pos = len(k_residues) - pep_idx
@@ -235,15 +257,22 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
 
         ax.set_xlim(-0.5, 1.5)
         ax.axis('off')
-        plt.title(f"Universal Global Interaction Network: {folder}\n(Observed Contacts < {CONTACT_CUTOFF}Å)", pad=20, fontsize=14, fontweight='bold')
+        
+        # Add custom biochemical legend to the network plot as well
+        plt.legend(handles=[hydrophobic_patch, hydrophilic_patch], loc='upper center', bbox_to_anchor=(0.5, 1.05), ncol=2)
+        
+        plt.title(f"Biochemical Interaction Network: {folder}\n(Observed Contacts < {CONTACT_CUTOFF}Å)", pad=30, fontsize=14, fontweight='bold')
         plt.tight_layout()
         plt.savefig(os.path.join(summary_dir, f"{folder}_interaction_network.png"), dpi=300)
         plt.close()
 
+        # ====================================================
+        # PLOT C: TIME-SERIES STABILITY DASHBOARD
+        # ====================================================
         print("   ↳ Exporting dynamic time-series stability diagnostics...", flush=True)
         time_axis = np.arange(len(rmsd_values)) * frame_interval
         fig, ax1 = plt.subplots(figsize=(10, 5))
-        color = 'tab:blue'
+        color = 'tab:gray'
         ax1.set_xlabel('Sampled Simulation Frame Index', fontsize=10)
         ax1.set_ylabel('Backbone RMSD (Å)', color=color, fontsize=10)
         ax1.plot(time_axis, rmsd_values, color=color, linewidth=2, label='Peptide Backbone RMSD')

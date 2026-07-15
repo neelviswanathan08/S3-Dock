@@ -9,6 +9,7 @@ import json
 import warnings
 import tempfile
 import numpy as np
+from scipy.spatial.distance import cdist
 from Bio.PDB import MMCIFParser, MMCIFIO, Select
 from Bio.SeqUtils.ProtParam import ProteinAnalysis
 from Bio import BiopythonWarning
@@ -37,7 +38,6 @@ binder_id = config['binder_chain_id']
 target_chains = list(config['target_chains_and_sequences'].keys())
 is_fibril_mode = config.get('is_fibril', True)
 
-# 🚨 THE FIX: No more forced 1000 variations. We listen strictly to your config.yaml
 samples = config.get('samples_per_seed', 1)
 
 if config.get('benchmark_mode', False):
@@ -60,6 +60,35 @@ def get_chain_centroids(model, chains):
                 coords_cache[cid] = atoms
                 centroids[cid] = np.mean([a.coord for a in atoms], axis=0)
     return centroids, coords_cache
+
+# ---------------------------------------------------------------------------
+# NEW: BLIND PREDICTIVE POCKET FILTER
+# ---------------------------------------------------------------------------
+def check_interface_contacts(cif_path, binder_id, pocket_contacts, dist_cutoff=5.0, min_contacts=3):
+    try:
+        parser = MMCIFParser(QUIET=True)
+        model = parser.get_structure("pred", cif_path)[0]
+        
+        if binder_id not in model: return False
+        
+        binder_atoms = [atom.coord for res in model[binder_id] for atom in res]
+        if not binder_atoms: return False
+        binder_coords = np.array(binder_atoms)
+        
+        active_contacts = 0
+        for chain_id, res_id in pocket_contacts:
+            if chain_id in model and res_id in model[chain_id]:
+                target_atoms = [atom.coord for atom in model[chain_id][res_id]]
+                if not target_atoms: continue
+                target_coords = np.array(target_atoms)
+                dists = cdist(binder_coords, target_coords)
+                if np.min(dists) <= dist_cutoff:
+                    active_contacts += 1
+                    
+        return active_contacts >= min_contacts
+    except Exception as e:
+        print(f"   -> [WARNING] Pocket contact filter failed to parse: {e}", flush=True)
+        return False
 
 # ---------------------------------------------------------------------------
 # METHOD 1: RIGID COORDINATE RMSD & DISLOCATED ATOMS CHECK
@@ -239,6 +268,11 @@ if not os.path.exists(master_csv):
             "PRODIGY_dG_kcal_mol", "PRODIGY_Kd_Text", "PRODIGY_Kd_Molar_Value", "Status"
         ])
 
+enforce_boltz = config.get('enforce_boltz_constraints', False)
+require_pocket_filter = config.get('require_pocket_filter', True)
+min_pocket_contacts = config.get('min_pocket_contacts', 3)
+iptm_cutoff = config.get('iptm_threshold', 0.4)
+
 for idx, (seq_id, sequence) in enumerate(jobs, 1):
     print(f"[INFO] Processing Target Workspace Component: {seq_id}", flush=True)
     design_dir = os.path.join(run_dir, seq_id)
@@ -262,7 +296,8 @@ for idx, (seq_id, sequence) in enumerate(jobs, 1):
     yaml_lines.append("\ntemplates:")
     for chain in target_chains: yaml_lines.append(f"  - cif: '{target_cif}'\n    chain_id: '{chain}'\n    template_id: '{chain}'")
     
-    if 'pocket_contacts' in config and config['pocket_contacts']:
+    # 🚨 POCKET CONSTRAINTS ONLY IF ENFORCE_BOLTZ IS TRUE
+    if 'pocket_contacts' in config and config['pocket_contacts'] and enforce_boltz:
         yaml_lines.append("\nconstraints:\n  - pocket:\n" + f"      binder: {binder_id}\n      contacts:")
         for contact in config['pocket_contacts']: yaml_lines.append(f"        - [{contact[0]}, {contact[1]}]")
         yaml_lines.append(f"      max_distance: {config.get('max_distance_threshold', 5.0)}")
@@ -281,7 +316,7 @@ for idx, (seq_id, sequence) in enumerate(jobs, 1):
         print(f"[INFO] Booting Boltz-2 Engine to generate {samples} structural samples...", flush=True)
         boltz_cmd = f"{boltz_bin} predict {yaml_filename} --use_msa_server --use_potentials --out_dir {design_dir} --recycling_steps 10 --diffusion_samples {samples} --override"
         
-        # 🚨 SMART SILENCER: Hides standard output, but captures and prints errors if it crashes!
+        # 🚨 SMART SILENCER
         process = subprocess.run(boltz_cmd, shell=True, capture_output=True, text=True)
         
         if process.returncode != 0: 
@@ -306,48 +341,86 @@ for idx, (seq_id, sequence) in enumerate(jobs, 1):
         model_num = model_num_match.group(1) if model_num_match else "0"
         model_id = f"{seq_id}_M{model_num}"
         
+        # 🚨 INDESTRUCTIBLE REGEX JSON PARSER TO EXTRACT AI CONFIDENCE (ipTM)
         iptm_score = 0.0
         for root, _, files in os.walk(design_dir):
             for file in files:
-                if file.endswith(".json") and "confidence" in file.lower():
+                if file.endswith(".json"):
+                    if samples > 1 and f"model_{model_num}" not in file.lower():
+                        continue
                     try:
-                        with open(os.path.join(root, file), 'r') as jf: data = json.load(jf)
-                        if "models" in data and len(data["models"]) > int(model_num): iptm_score = float(data["models"][int(model_num)].get("iptm", 0.0))
-                        elif f"model_{model_num}" in data: iptm_score = float(data[f"model_{model_num}"].get("iptm", 0.0))
-                    except: pass
+                        with open(os.path.join(root, file), 'r') as jf:
+                            content = jf.read()
+                            match = re.search(r'"iptm"\s*:\s*([0-9.]+)', content, re.IGNORECASE)
+                            if match:
+                                iptm_score = float(match.group(1))
+                            else:
+                                match_comp = re.search(r'"complex_iptm"\s*:\s*([0-9.]+)', content, re.IGNORECASE)
+                                if match_comp:
+                                    iptm_score = float(match_comp.group(1))
+                    except:
+                        pass
+        
+        if iptm_score == 0.0:
+            print(f"   -> [WARNING] ipTM score not found in JSON outputs for {model_id}. Defaulting to 0.0", flush=True)
 
         helicity_score = calculate_3d_helicity_score(best_cif_path)
-        dG, Kd_text, Kd_molar = run_prodigy_scoring(best_cif_path, model_id)
         
         passed_structure_filter = True
+        status_msg = ""
+        score_metric = 0.0
         
-        if is_fibril_mode:
-            global_rmsd, bad_atoms = check_smart_holistic_similarity(best_cif_path, target_cif)
-            score_metric = global_rmsd
-            max_bad_atoms = config.get('max_bad_atoms', 350)
-            rmsd_cutoff = config.get('rmsd_cutoff', 3.5)
-            
-            if global_rmsd > rmsd_cutoff or bad_atoms > max_bad_atoms:
+        # 🚨 1. UNIVERSAL AI CONFIDENCE GATE
+        if iptm_score > 0.0 and iptm_score < iptm_cutoff:
+            passed_structure_filter = False
+            status_msg = f"REJECTED: Hallucination (ipTM {iptm_score:.2f} < {iptm_cutoff})"
+            print(f"   -> [REJECTED] {model_id} interaction does not meet Boltz confidence thresholds ({status_msg})", flush=True)
+
+        # 🚨 2. BLIND PREDICTIVE POCKET FILTER
+        if passed_structure_filter and require_pocket_filter and 'pocket_contacts' in config:
+            passed_pocket = check_interface_contacts(
+                best_cif_path, binder_id, config['pocket_contacts'], 
+                config.get('max_distance_threshold', 5.0), min_pocket_contacts
+            )
+            if not passed_pocket:
                 passed_structure_filter = False
-                status_msg = f"REJECTED: RMSD {global_rmsd:.2f}A (cutoff {rmsd_cutoff}A), Bad Atoms {bad_atoms} (cutoff {max_bad_atoms})"
-                print(f"   -> [REJECTED] {model_id} failed backbone configuration metrics ({status_msg})", flush=True)
+                status_msg = "REJECTED: Off-Target Binding (Failed Pocket Filter)"
+                print(f"   -> [REJECTED] {model_id} spontaneously bound to the wrong region.", flush=True)
+
+        # 🚨 3. STRUCTURAL INTEGRITY FILTER
+        if passed_structure_filter:
+            if is_fibril_mode:
+                global_rmsd, bad_atoms = check_smart_holistic_similarity(best_cif_path, target_cif)
+                score_metric = global_rmsd
+                max_bad_atoms = config.get('max_bad_atoms', 350)
+                rmsd_cutoff = config.get('rmsd_cutoff', 3.5)
+                
+                if global_rmsd > rmsd_cutoff or bad_atoms > max_bad_atoms:
+                    passed_structure_filter = False
+                    status_msg = f"REJECTED: RMSD {global_rmsd:.2f}A, Bad Atoms {bad_atoms}"
+                    print(f"   -> [REJECTED] {model_id} failed backbone configuration metrics ({status_msg})", flush=True)
+                else:
+                    status_msg = f"PASSED (RMSD: {global_rmsd:.2f}A)"
             else:
-                status_msg = f"PASSED (RMSD: {global_rmsd:.2f}A)"
-        else:
-            score_metric = calculate_oligomeric_tm_score(best_cif_path, target_cif)
-            if score_metric < tm_cutoff:
-                passed_structure_filter = False
-                status_msg = f"REJECTED: TM-Score {score_metric:.3f} < {tm_cutoff}"
-                print(f"   -> [REJECTED] {model_id} failed complex stack validation ({status_msg})", flush=True)
-            else:
-                status_msg = f"PASSED (TM-Score: {score_metric:.3f})"
+                score_metric = calculate_oligomeric_tm_score(best_cif_path, target_cif)
+                if score_metric < tm_cutoff:
+                    passed_structure_filter = False
+                    status_msg = f"REJECTED: TM-Score {score_metric:.3f} < {tm_cutoff}"
+                    print(f"   -> [REJECTED] {model_id} failed complex stack validation ({status_msg})", flush=True)
+                else:
+                    status_msg = f"PASSED (TM-Score: {score_metric:.3f})"
+
+        # 🚨 4. PRODIGY SCORING
+        dG, Kd_text, Kd_molar = 999.0, "N/A", 999.0
+        if passed_structure_filter:
+            dG, Kd_text, Kd_molar = run_prodigy_scoring(best_cif_path, model_id)
 
         # Export ALL structural/sequence metrics immediately
         with open(master_csv, "a", newline="") as f:
             csv.writer(f).writerow([
                 model_id, seq_id, sequence, seq_len, mw, pi, gravy,
                 iptm_score, is_fibril_mode, round(score_metric, 3), 
-                helicity_score, dG, Kd_text, f"{Kd_molar:.3e}", status_msg
+                helicity_score, dG, Kd_text, f"{Kd_molar:.3e}" if Kd_molar != 999.0 else "N/A", status_msg
             ])
 
         if passed_structure_filter and dG != 999.0:
@@ -356,23 +429,35 @@ for idx, (seq_id, sequence) in enumerate(jobs, 1):
                 'metric': score_metric, 'helicity': helicity_score, 'dG': dG, 'Kd_text': Kd_text, 'Kd_molar': Kd_molar
             })
             metric_label = "RMSD" if is_fibril_mode else "TM-Score"
-            print(f"   -> [EVALUATED] {model_id} | dG: {dG} kcal/mol | Kd: {Kd_text} | {metric_label}: {score_metric:.3f} | pI: {pi}", flush=True)
+            print(f"   -> [EVALUATED] {model_id} | dG: {dG} kcal/mol | ipTM: {iptm_score:.3f} | {metric_label}: {score_metric:.3f} | pI: {pi}", flush=True)
 
     print("----------------------------------------------------", flush=True)
 
+# =====================================================================
+# GLOBAL CHAMPION SELECTION (THE TOP-K BOTTLENECK)
+# =====================================================================
 if os.path.exists(final_dir): 
     pass
 else:
     os.makedirs(final_dir, exist_ok=True)
 
 if global_candidates:
+    # Sort ALL structurally valid candidates across ALL seeds strictly by dG (strongest affinity)
     global_candidates.sort(key=lambda x: float(x['dG']))
-    top_design = global_candidates[0]
+    
+    # 🚨 THE TOP-K BOTTLENECK: Select the Top 3 (or fewer if less than 3 survived)
+    top_k = min(config("top_k", 3), len(global_candidates))
     metric_label = "RMSD" if is_fibril_mode else "TM-Score"
     
-    print(f"\n[GLOBAL CHAMPION] Selected Absolute Best Candidate from total library run: {top_design['id']}", flush=True)
-    print(f"                  dG: {top_design['dG']} kcal/mol | Kd: {top_design['Kd_text']} | {metric_label}: {top_design['metric']:.3f}\n", flush=True)
+    print(f"\n[GLOBAL CHAMPIONS] Selected the Top {top_k} Candidates for downstream MD refinement:", flush=True)
     
-    shutil.copy(top_design['path'], os.path.join(final_dir, f"{top_design['id']}_best.cif"))
+    for i in range(top_k):
+        candidate = global_candidates[i]
+        print(f"   #{i+1}: {candidate['id']} | dG: {candidate['dG']} kcal/mol | ipTM: {candidate['iptm']:.3f} | {metric_label}: {candidate['metric']:.3f}", flush=True)
+        
+        # Push the top candidates forward to the final directory for HADDOCK refinement
+        shutil.copy(candidate['path'], os.path.join(final_dir, f"{candidate['id']}_best.cif"))
+        
+    print("\n", flush=True)
 else:
     print(f"\n[WARNING] No structural variations across any seeds passed validation gates.", flush=True)

@@ -112,7 +112,7 @@ print(f"[INFO] Found {len(archived_models)} winning candidates to push through g
 local_haddock_bin = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'envs', 'haddock_env', 'bin', 'haddock3'))
 local_prodigy_bin = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'envs', 'boltz_env', 'bin', 'prodigy'))
 
-# 🚨 GRAB SEEDS FROM CONFIG 🚨
+# GRAB SEEDS FROM CONFIG 
 haddock_seed = config.get('rnd_haddock_seed', config.get('rng_seed', 42))
 
 for cif_path in archived_models:
