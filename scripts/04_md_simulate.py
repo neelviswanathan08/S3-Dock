@@ -42,12 +42,45 @@ with open(CONFIG_PATH, 'r') as file:
 run_name = config['run_folder_name']
 run_dir = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "results", run_name))
 haddock_dir = os.path.join(run_dir, "haddock_runs")
+final_dir = os.path.join(run_dir, "top_designs")
 md_dir = os.path.join(run_dir, "md_simulations")
 
 os.makedirs(md_dir, exist_ok=True)
 
-if not os.path.exists(haddock_dir):
-    print(f"[ERROR] No HADDOCK inputs discovered at {haddock_dir}.", flush=True)
+run_haddock = config.get('run_haddock', False)
+input_structures = {}
+
+# 🚨 DYNAMIC ROUTING LOGIC 🚨
+if run_haddock:
+    print("[INFO] HADDOCK mode active. Sourcing initial coordinates from docking clusters...", flush=True)
+    if not os.path.exists(haddock_dir):
+        print(f"[ERROR] No HADDOCK inputs discovered at {haddock_dir}.", flush=True)
+        sys.exit(1)
+        
+    for model_name in os.listdir(haddock_dir):
+        model_haddock_out = os.path.join(haddock_dir, model_name, "haddock3_output")
+        found_files = []
+        if os.path.exists(model_haddock_out):
+            for root, dirs, files in os.walk(model_haddock_out):
+                for file in files:
+                    if "cluster_1_model_1" in file and (file.endswith(".pdb") or file.endswith(".pdb.gz")):
+                        found_files.append(os.path.join(root, file))
+        if found_files:
+            input_structures[model_name] = sorted(found_files)[0]
+else:
+    print("[INFO] HADDOCK bypass active. Sourcing initial coordinates directly from Boltz-2 PDBs...", flush=True)
+    if not os.path.exists(final_dir):
+        print(f"[ERROR] No top_designs folder discovered at {final_dir}.", flush=True)
+        sys.exit(1)
+        
+    for file in os.listdir(final_dir):
+        if file.endswith(".pdb"):
+            # Strip extensions to match the original model IDs
+            model_name = file.replace("_best.pdb", "").replace(".pdb", "")
+            input_structures[model_name] = os.path.join(final_dir, file)
+
+if not input_structures:
+    print("[ERROR] No valid starting .pdb structures found to simulate. Exiting Phase 4.", flush=True)
     sys.exit(1)
 
 total_steps = config.get('md_simulation_steps', 10000)
@@ -55,25 +88,14 @@ log_interval = config.get('md_reporting_interval', 1000)
 checkpoint_interval = log_interval * 5
 target_temp = config.get('md_temperature_kelvin', 310.15)
 
-for model_name in os.listdir(haddock_dir):
-    model_haddock_out = os.path.join(haddock_dir, model_name, "haddock3_output")
-    
-    found_files = []
-    if os.path.exists(model_haddock_out):
-        for root, dirs, files in os.walk(model_haddock_out):
-            for file in files:
-                if "cluster_1_model_1" in file and (file.endswith(".pdb") or file.endswith(".pdb.gz")):
-                    found_files.append(os.path.join(root, file))
-
-    if not found_files:
-        continue
-        
-    raw_pdb_path = sorted(found_files)[0]
+# Execute the MD loop dynamically
+for model_name, raw_pdb_path in input_structures.items():
     model_md_dir = os.path.join(md_dir, model_name)
     os.makedirs(model_md_dir, exist_ok=True)
     
     start_pdb_path = os.path.join(model_md_dir, "start_complex.pdb")
     
+    # Handle both compressed HADDOCK outputs and uncompressed Boltz PDBs seamlessly
     if raw_pdb_path.endswith(".gz"):
         with gzip.open(raw_pdb_path, 'rb') as f_in:
             with open(start_pdb_path, 'wb') as f_out:
@@ -89,7 +111,7 @@ for model_name in os.listdir(haddock_dir):
     
     # 🚨 SMART BYPASS: Skip the OpenMM math if the trajectory already exists!
     if os.path.exists(nc_path) and os.path.exists(cif_path):
-        print("  [SMART RESUME] Existing trajectory discovered. Bypassing 6-hour MD simulation.", flush=True)
+        print("  [SMART RESUME] Existing trajectory discovered. Bypassing MD simulation.", flush=True)
     else:
         try:
             print("  [SYSTEM] Repairing structural topology and adding caps via PDBFixer...", flush=True)

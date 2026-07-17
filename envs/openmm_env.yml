@@ -102,6 +102,7 @@ dependencies:
   - typing-extensions
   - typing_extensions
   - tzdata
+  - conda-forge::parmed
   - zlib
   - zlib-ng
   - zstd
@@ -114,4 +115,4 @@ dependencies:
       - seaborn==0.13.2      # <--- PERMANENTLY ADDED SEABORN HERE
       - pillow==12.3.0
       - pyyaml==6.0.2
-      - netCDF4==1.7.1.post1  # <--- FORCE THE PRE-COMPILED C-WHEEL HERE
+      - netCDF4==1.7.1.post1  # <--- FORCE THE PRE-COMPILED C-WHEEL HERE       # <--- ADD THIS EXACT LINE

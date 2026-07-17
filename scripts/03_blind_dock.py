@@ -16,16 +16,54 @@ CONFIG_PATH = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'config.yaml'))
 with open(CONFIG_PATH, 'r') as file:
     config = yaml.safe_load(file)
 
-if not config.get('run_haddock', False):
-    print("[SKIP] HADDOCK Global Docking disabled in config.yaml. Skipping Phase 3.", flush=True)
-    exit(0)
-
 run_name = config['run_folder_name']
 run_dir = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "results", run_name))
 final_dir = os.path.join(run_dir, "top_designs")
 
 binder_id = config['binder_chain_id']
 target_chains = list(config['target_chains_and_sequences'].keys())
+
+if not os.path.exists(final_dir):
+    print(f"[ERROR] No 'top_designs' directory found at {final_dir}.", flush=True)
+    exit(1)
+
+archived_models = [os.path.join(final_dir, f) for f in os.listdir(final_dir) if f.endswith("_best.cif")]
+
+if not archived_models:
+    print("[WARNING] No valid structural candidates found in top_designs folder to dock.", flush=True)
+    exit(0)
+
+# --- DIRECT PDB CONVERSION FOR OPENMM BYPASS ---
+def convert_cif_to_pdb_complex(cif_path, output_pdb_path):
+    try:
+        parser = MMCIFParser(QUIET=True)
+        structure = parser.get_structure("complex", cif_path)
+        io = PDBIO()
+        io.set_structure(structure)
+        io.save(output_pdb_path)
+        return True
+    except Exception as e:
+        print(f"   [ERROR] CIF to PDB Conversion Error: {e}", flush=True)
+        return False
+
+# 🚨 HADDOCK BYPASS LOGIC 🚨
+if not config.get('run_haddock', False):
+    print("[SKIP] HADDOCK Global Docking disabled in config.yaml. Bypassing Phase 3.", flush=True)
+    print(f"[INFO] Translating {len(archived_models)} Boltz-2 .cif complexes to .pdb format for OpenMM...", flush=True)
+    
+    for cif_path in archived_models:
+        pdb_filename = os.path.basename(cif_path).replace(".cif", ".pdb")
+        pdb_path = os.path.join(final_dir, pdb_filename)
+        
+        # Prevent redundant conversions if re-running
+        if not os.path.exists(pdb_path):
+            print(f"   -> Converting {os.path.basename(cif_path)}...", flush=True)
+            convert_cif_to_pdb_complex(cif_path, pdb_path)
+        else:
+            print(f"   -> {pdb_filename} already exists. Skipping conversion.", flush=True)
+            
+    print("\n[SUCCESS] Phase 3 Bypassed. Complex PDBs are ready for Phase 4 MD.", flush=True)
+    exit(0)
 
 # --- ADVANCED SANITIZATION LAYER: Prevents CNS Overlap Crashes ---
 def extract_and_sanitize_target(cif_path, output_pdb_path, chains_to_keep):
@@ -97,16 +135,6 @@ def extract_and_sanitize_binder(cif_path, output_pdb_path, binder_chain_id):
         print(f"   [ERROR] Binder Sanitization Error: {e}", flush=True)
         return False
 
-if not os.path.exists(final_dir):
-    print(f"[ERROR] No 'top_designs' directory found at {final_dir}.", flush=True)
-    exit(1)
-
-archived_models = [os.path.join(final_dir, f) for f in os.listdir(final_dir) if f.endswith("_best.cif")]
-
-if not archived_models:
-    print("[WARNING] No valid structural candidates found in top_designs folder to dock.", flush=True)
-    exit(0)
-
 print(f"[INFO] Found {len(archived_models)} winning candidates to push through global blind dock.", flush=True)
 
 local_haddock_bin = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'envs', 'haddock_env', 'bin', 'haddock3'))
@@ -132,7 +160,6 @@ for cif_path in archived_models:
     haddock_cfg_path = os.path.join(haddock_work_dir, "blind_dock.toml")
     haddock_output_dir = os.path.join(haddock_work_dir, "haddock3_output")
     
-    # 🚨 FIX: MOVED iniseed INTO THE PHYSICS MODULES 🚨
     haddock_toml_content = f"""run_dir = "{haddock_output_dir}"
 mode = "local"
 ncores = 2

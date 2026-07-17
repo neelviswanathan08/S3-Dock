@@ -8,7 +8,7 @@ import random
 import argparse
 import peptides
 
-print("====================================================", flush=True)
+print("===================================================", flush=True)
 print("[SYSTEM] S3-DOCK: PHASE 1 - SEQUENCE GENERATION ENGINE", flush=True)
 print("====================================================", flush=True)
 

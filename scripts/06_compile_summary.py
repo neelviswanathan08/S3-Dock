@@ -26,7 +26,8 @@ with open(CONFIG_PATH, 'r') as file:
 run_name = config['run_folder_name']
 run_dir = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "results", run_name))
 md_dir = os.path.join(run_dir, "md_simulations")
-mmgbsa_dir = os.path.join(run_dir, "mmgbsa_results")
+# 🚨 FIXED: Direct alignment with Phase 5 output paths
+mmpbsa_out_dir = os.path.join(run_dir, "mmpbsa_results")
 final_dir = os.path.join(run_dir, "top_designs")
 summary_dir = os.path.join(run_dir, "final_summary")
 
@@ -36,10 +37,8 @@ if not os.path.exists(md_dir) or not os.listdir(md_dir):
     print("❌ ERROR: Discovery components missing. Cannot compile master report.", flush=True)
     sys.exit(1)
 
-# 🚨 BIOCHEMICAL CLASSIFICATION DICTIONARY (Handles standard and AMBER-modified naming)
 HYDROPHOBIC_RES = {'ALA', 'VAL', 'ILE', 'LEU', 'MET', 'PHE', 'TYR', 'TRP', 'PRO', 'GLY', 'CYS', 'CYX'}
 
-# 🚨 PARSE THE EXPANDED PHASE 2 MASTER METRICS CSV
 phase2_metrics = {}
 master_csv_phase2 = os.path.join(final_dir, f"caps_2_{run_name}_master_metrics.csv")
 if os.path.exists(master_csv_phase2):
@@ -51,9 +50,10 @@ if os.path.exists(master_csv_phase2):
             for row in reader:
                 if row:
                     model_id = row[0]
-                    phase2_metrics[model_id] = row[1:]
+                    # 🚨 FIXED: Keep entire row intact to map indices properly
+                    phase2_metrics[model_id] = row
 else:
-    print(f"⚠️ WARNING: Phase 2 Metrics File not discovered at {master_csv_phase2}. Columns will fall back to N/A.", flush=True)
+    print(f"⚠️ WARNING: Phase 2 Metrics File not discovered at {master_csv_phase2}.", flush=True)
 
 master_data = []
 CONTACT_CUTOFF = 4.5
@@ -62,7 +62,7 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
     model_md_path = os.path.join(md_dir, folder)
     cif_path = os.path.join(model_md_path, "topology_template.cif")
     nc_path = os.path.join(model_md_path, "trajectory.nc")
-    mmgbsa_csv = os.path.join(mmgbsa_dir, f"{folder}_mmgbsa.csv")
+    mmpbsa_csv = os.path.join(mmpbsa_out_dir, f"{folder}_mmpbsa.csv")
     
     if not os.path.exists(cif_path) or not os.path.exists(nc_path):
         continue
@@ -72,11 +72,13 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
     try:
         raw_traj = md.load(nc_path, top=cif_path)
         total_frames = raw_traj.n_frames
-        default_start = total_frames // 2
-        start_frame = config.get('mmpbsa_start_frame', default_start)
-        end_frame = config.get('mmpbsa_end_frame', -1)
-        frame_interval = config.get('mmpbsa_interval', 1)
-        if end_frame == -1 or end_frame > total_frames: end_frame = total_frames
+        
+        start_frame = config.get('energy_start_frame', total_frames // 2)
+        end_frame = config.get('energy_end_frame', total_frames)
+        frame_interval = config.get('energy_interval', 1)
+        
+        if start_frame >= total_frames: start_frame = 0
+        if end_frame == -1 or end_frame > total_frames or end_frame <= start_frame: end_frame = total_frames
         
         traj = raw_traj[start_frame:end_frame:frame_interval]
         traj.image_molecules(inplace=True)
@@ -110,22 +112,25 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
         
         print("   ↳ Parsing Phase 5 production thermodynamics...", flush=True)
         dg_final, dg_std = 0.0, 0.0
-        if os.path.exists(mmgbsa_csv):
+        if os.path.exists(mmpbsa_csv):
             dg_vals = []
-            with open(mmgbsa_csv, 'r') as f:
+            with open(mmpbsa_csv, 'r') as f:
                 reader = csv.reader(f)
                 next(reader) 
                 for row in reader:
+                    # 🚨 FIXED: Safe indexing for Phase 5 structure
                     dg_vals.append(float(row[4]))
             if dg_vals:
                 dg_final = np.mean(dg_vals)
                 dg_std = np.std(dg_vals)
         
+        # 🚨 FIXED: Array structure mapped safely to avoid IndexErrors
         p2_data = phase2_metrics.get(folder, ["N/A"] * 14)
+        if len(p2_data) < 14:
+            p2_data = [folder] + list(p2_data) + ["N/A"] * (14 - len(p2_data))
         
         master_data.append([
             folder,                   
-            p2_data[0],               
             p2_data[1],               
             p2_data[2],               
             p2_data[3],               
@@ -173,11 +178,9 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
             contact_counts.append(np.mean(res_contacts_per_frame))
 
         plt.figure(figsize=(12, 6))
-        
-        # 🚨 NEW: BIOCHEMICAL COLOR MAPPING FOR BAR CHART
         colors = ['tab:orange' if res.name in HYDROPHOBIC_RES else 'tab:blue' for res in k_residues]
-        
         bars = plt.bar(k_res_labels, contact_counts, color=colors, edgecolor='black', zorder=3)
+        
         for bar in bars:
             height = bar.get_height()
             if height > 1.0:
@@ -190,7 +193,6 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
         plt.xticks(rotation=45, ha='right')
         plt.ylim(0, max(contact_counts) * 1.15 if len(contact_counts) > 0 else 10)
         
-        # Add custom biochemical legend
         hydrophobic_patch = mpatches.Patch(color='tab:orange', label='Hydrophobic')
         hydrophilic_patch = mpatches.Patch(color='tab:blue', label='Polar / Charged')
         plt.legend(handles=[hydrophobic_patch, hydrophilic_patch], loc='upper right')
@@ -231,14 +233,12 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
         unique_active_x = np.unique(active_x) 
         fig, ax = plt.subplots(figsize=(12, 10))
 
-        # 🚨 NEW: BIOCHEMICAL COLOR MAPPING FOR NETWORK NODES (LEFT = PEPTIDE)
         for i, y_idx in enumerate(range(len(k_residues))):
             y_pos = len(k_residues) - i
             node_color = 'tab:orange' if k_residues[y_idx].name in HYDROPHOBIC_RES else 'tab:blue'
             ax.scatter(0, y_pos, color=node_color, s=150, zorder=3, edgecolor='black')
             ax.text(-0.05, y_pos, k_res_labels[y_idx], ha='right', va='center', fontsize=11, fontweight='bold')
 
-        # 🚨 NEW: BIOCHEMICAL COLOR MAPPING FOR NETWORK NODES (RIGHT = RECEPTOR)
         if len(unique_active_x) > 0:
             for j, x_idx in enumerate(unique_active_x):
                 y_pos = len(k_residues) - (j * (len(k_residues) / max(1, len(unique_active_x) - 1))) if len(unique_active_x) > 1 else len(k_residues)/2
@@ -253,14 +253,12 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
                     line_width = max(0.5, 5.0 - (dist_val - 2.0))
                     ax.plot([0, 1], [pep_y_pos, y_pos], color='gray', alpha=0.4, linewidth=line_width, zorder=1)
         else:
-            ax.text(0.5, len(k_residues)/2, "GLOBAL ERROR: NO CONTACTS FOUND BELOW CUTOFF", ha='center', va='center', fontsize=12, color='red', fontweight='bold')
+            ax.text(0.5, len(k_residues)/2, "NO CONTACTS FOUND BELOW CUTOFF", ha='center', va='center', fontsize=12, color='red', fontweight='bold')
 
         ax.set_xlim(-0.5, 1.5)
         ax.axis('off')
         
-        # Add custom biochemical legend to the network plot as well
         plt.legend(handles=[hydrophobic_patch, hydrophilic_patch], loc='upper center', bbox_to_anchor=(0.5, 1.05), ncol=2)
-        
         plt.title(f"Biochemical Interaction Network: {folder}\n(Observed Contacts < {CONTACT_CUTOFF}Å)", pad=30, fontsize=14, fontweight='bold')
         plt.tight_layout()
         plt.savefig(os.path.join(summary_dir, f"{folder}_interaction_network.png"), dpi=300)
@@ -295,30 +293,13 @@ output_report_csv = os.path.join(summary_dir, "pipeline_summary_report.csv")
 with open(output_report_csv, "w", newline="") as f:
     writer = csv.writer(f)
     writer.writerow([
-        "Design_Target", 
-        "Seed_ID", 
-        "Binder_Sequence",
-        "Seq_Length",
-        "MW_kDa",
-        "pI",
-        "GRAVY",
-        "Boltz_ipTM", 
-        "Is_Rigid_Fibril_Mode",
-        "Structural_Metric_Score", 
-        "3D_Helicity_Score", 
-        "PRODIGY_dG_kcal_mol", 
-        "PRODIGY_Kd_Text",
-        "PRODIGY_Kd_Molar_Value",
-        "Status",
-        "MMGBSA_Delta_G_kcal_mol", 
-        "MMGBSA_Std_Dev", 
-        "Mean_Backbone_RMSD_A", 
-        "Mean_Hydrogen_Bonds", 
-        "Buried_Surface_Area_A2"
+        "Design_Target", "Seed_ID", "Binder_Sequence", "Seq_Length", "MW_kDa", "pI", "GRAVY",
+        "Boltz_ipTM", "Is_Rigid_Fibril_Mode", "Structural_Metric_Score", "3D_Helicity_Score", 
+        "PRODIGY_dG_kcal_mol", "PRODIGY_Kd_Text", "PRODIGY_Kd_Molar_Value", "Status",
+        "MMPBSA_Delta_G_kcal_mol", "MMPBSA_Std_Dev", "Mean_Backbone_RMSD_A", "Mean_Hydrogen_Bonds", "Buried_Surface_Area_A2"
     ])
     writer.writerows(master_data)
 
 print("\n----------------------------------------------------", flush=True)
 print(f"[SUCCESS] Merged Master CSV Report logged at: {output_report_csv}", flush=True)
-print(f"[SUCCESS] High-fidelity graphical visual assets cached in: {summary_dir}", flush=True)
 print("[PHASE 6 COMPLETE] ALL ASSETS INTEGRATED SUCCESSFULLY! WE ARE DONE!", flush=True)
