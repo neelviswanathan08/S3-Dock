@@ -3,13 +3,14 @@
 # =====================================================================
 
 # --- 1. FACTORY RUN SETTINGS ---
-run_folder_name: "antibody"
-num_seeds:  150           # Default to 1000 tracks (Ignored if benchmark_mode is true)
+run_folder_name: "aSyn_Candidate"
+num_seeds:  400
+top_k: 1           # Default to 1000 tracks (Ignored if benchmark_mode is true)
 samples_per_seed: 1           # 1 structural prediction per fasta seed entry
 max_discovery_loops: 5
 
 # --- 2. PEPTIDE DESIGN CONSTRAINTS ---
-peptide_length: 15
+peptide_length: 22
 
 # Structural Control ("helix" or "beta_sheet")
 secondary_structure: "helix"  
@@ -22,17 +23,17 @@ custom_pattern: ""
 
 # 🔬 BENCHMARK GATEKEEPER MATRIX
 # Set benchmark_mode to true to duplicate the sequence across 1000 slots and select the top 1
-benchmark_mode: true                        
-benchmark_sequence: "CEDGNYDYAMDYC"  # PSM-alpha-3 Control Sequence
+benchmark_mode: false                        
+benchmark_sequence: "MEFVAKLFKFFKDLLGKFLGNN"  # PSM-alpha-3 Control Sequence
 benchmark_samples: 20                    # Total fasta seeds to write into library.fasta
 
 # Strict Biochemical Filtering Targets (Used if benchmark_mode is false)
-target_net_charge: -2    # Target electrical charge at pH 7.4
+target_net_charge: +3    # Target electrical charge at pH 7.4
 boman_index_min: 1         # Minimum binding potential/solubility
-hydrophobic_moment_target: 0.4
+hydrophobic_moment_target: 0.5
 
 # --- 2b. EVOLUTIONARY OPTIMIZER (MONTE CARLO) SETTINGS ---
-rng_seed: 100     # Master RNG seed for deep learning and optimizer reproducibility
+rng_seed: 1000     # Master RNG seed for deep learning and optimizer reproducibility
 charge_tolerance: 0.5        
 charge_weight: 10            
 boman_weight: 5              
@@ -44,37 +45,57 @@ cooling_rate: 0.9995
 dedupe_output: True          
 
 # --- 3. DYNAMIC RECEPTOR TARGET SETTINGS ---
-target_cif: "inputs/anti.cif"
-binder_chain_id: "D"
+target_cif: "inputs/aSyn_fibril.cif"
+binder_chain_id: "K"
 is_fibril: false
 
 target_chains_and_sequences:
-  A: "DIVLTQSPATLSVTPGNSVSLSCRASQSIGNNLHWYQQKSHESPRLLIKYASQSISGIPSRFSGSGSGTDFTLSINSVETEDFGMYFCQQSNSWPYTFGGGTKLEIKRADAAPTVSIFPPSSEQLTSGGASVVCFLNNFYPKDINVKWKIDGSERQNGVLNSWTDQDSKDSTYSMSSTLTLTKDEYERHNSYTCEATHKTSTSPIVKSFNRNEC"
-  B: "DVQLQESGPSLVKPSQTLSLTCSVTGDSITSDYWSWIRKFPGNRLEYMGYVSYSGSTYYNPSLKSRISITRDTSKNQYYLDLNSVTTEDTATYYCANWDGDYWGQGTLVTVSAAKTTPPSVYPLAPGSAAQTNSMVTLGCLVKGYFPEPVTVTWNSGSLSSGVHTFPAVLQSDLYTLSSSVTVPSSPRPSETVTCNVAHPASSTKVDKKIVPRDC"
-  C: "KVFGRCELAAAMKRHGLDNYRGYSLGNWVCAAKFESNFNTQATNRNTDGSTDYGILQINSRWWCNDGRTPGSRNLCNIPCSALLSSDITASVNCAKKIVSDGNGMNAWVAWRNRCKGTDVQAWIRGCRL"
+  A: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
+  B: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
+  C: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
+  D: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
+  E: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
+  F: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
+  G: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
+  H: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
+  I: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
+  J: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
 
 # --- 4. UNIVERSAL STRUCTURAL POCKET CONSTRAINTS ---
-max_distance_threshold: 5.0
 pocket_contacts:
-  - ["C", 6]
-  - ["C", 8]
-  - ["C", 62]
-  - ["C", 63]
-  - ["C", 101]
-  - ["C", 102]
-  - ["C", 103]
+  - ["I", 10]
+  - ["I", 11]
+  - ["I", 12]
+  - ["I", 13]
+  - ["I", 14]
+  - ["I", 15]
+  - ["I", 16]
+  - ["I", 17]
+  - ["I", 18]
+  - ["I", 19]
+  - ["J", 10]
+  - ["J", 11]
+  - ["J", 12]
+  - ["J", 13]
+  - ["J", 14]
+  - ["J", 15]
+  - ["J", 16]
+  - ["J", 17]
+  - ["J", 18]
+  - ["J", 19]
 
 # --- 5. QUALITY CONTROL GATEKEEPERS ---
 enforce_boltz_constraints: false 
 require_pocket_filter: true
-min_pocket_contacts: 3       
+min_pocket_contacts: 4       
 max_distance_threshold: 5.0
+use_msa_filter: true
 
 rmsd_cutoff: 3.5
 dist_threshold: 2.5
 max_bad_atoms: 350
 iptm_threshold: 0.20
-tm_threshold: 0.75
+tm_threshold: 0.85
 
 
 # --- 6. HADDOCK3 BLIND GLOBAL DOCKING SETTINGS ---
@@ -86,7 +107,7 @@ haddock_top_clusters: 10
 
 
 # --- 7. OPENMM MOLECULAR DYNAMICS SETTINGS ---
-md_simulation_steps: 100000      # Production-scale trajectory length
+md_simulation_steps: 50000000      # Production-scale trajectory length
 md_reporting_interval: 10000         # Yields exactly 5,000 saved trajectory frames
 md_temperature_kelvin: 310.15       
 
@@ -95,9 +116,9 @@ md_temperature_kelvin: 310.15
 free_energy_method: "mm-pbsa"      
 
 # Universal Energy Parameters
-energy_start_frame: 5             
-energy_end_frame: 10               
-energy_interval: 1                  
+energy_start_frame: 2500             
+energy_end_frame: 5000               
+energy_interval: 25                  
 energy_salt_concentration: 0.150
 
 # --- 9. MM-GBSA ENERGY CALCULATION SETTINGS ---

@@ -26,7 +26,6 @@ with open(CONFIG_PATH, 'r') as file:
 run_name = config['run_folder_name']
 run_dir = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "results", run_name))
 md_dir = os.path.join(run_dir, "md_simulations")
-# 🚨 FIXED: Direct alignment with Phase 5 output paths
 mmpbsa_out_dir = os.path.join(run_dir, "mmpbsa_results")
 final_dir = os.path.join(run_dir, "top_designs")
 summary_dir = os.path.join(run_dir, "final_summary")
@@ -50,7 +49,6 @@ if os.path.exists(master_csv_phase2):
             for row in reader:
                 if row:
                     model_id = row[0]
-                    # 🚨 FIXED: Keep entire row intact to map indices properly
                     phase2_metrics[model_id] = row
 else:
     print(f"⚠️ WARNING: Phase 2 Metrics File not discovered at {master_csv_phase2}.", flush=True)
@@ -60,17 +58,17 @@ CONTACT_CUTOFF = 4.5
 
 for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_dir, f))]:
     model_md_path = os.path.join(md_dir, folder)
-    cif_path = os.path.join(model_md_path, "topology_template.cif")
+    pdb_template_path = os.path.join(model_md_path, "topology_template.pdb")
     nc_path = os.path.join(model_md_path, "trajectory.nc")
     mmpbsa_csv = os.path.join(mmpbsa_out_dir, f"{folder}_mmpbsa.csv")
     
-    if not os.path.exists(cif_path) or not os.path.exists(nc_path):
+    if not os.path.exists(pdb_template_path) or not os.path.exists(nc_path):
         continue
         
     print(f"\n📊 Compiling Advanced Biophysics Reports for Design Vector: {folder}", flush=True)
     
     try:
-        raw_traj = md.load(nc_path, top=cif_path)
+        raw_traj = md.load(nc_path, top=pdb_template_path)
         total_frames = raw_traj.n_frames
         
         start_frame = config.get('energy_start_frame', total_frames // 2)
@@ -118,13 +116,11 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
                 reader = csv.reader(f)
                 next(reader) 
                 for row in reader:
-                    # 🚨 FIXED: Safe indexing for Phase 5 structure
                     dg_vals.append(float(row[4]))
             if dg_vals:
                 dg_final = np.mean(dg_vals)
                 dg_std = np.std(dg_vals)
         
-        # 🚨 FIXED: Array structure mapped safely to avoid IndexErrors
         p2_data = phase2_metrics.get(folder, ["N/A"] * 14)
         if len(p2_data) < 14:
             p2_data = [folder] + list(p2_data) + ["N/A"] * (14 - len(p2_data))
@@ -151,9 +147,6 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
             round(mean_bsa, 1)        
         ])
         
-        # ====================================================
-        # GENERATE PLOT A: DYNAMIC BINDING HOTSPOTS
-        # ====================================================
         print("   ↳ Mapping global binding hotspots...", flush=True)
         all_chains = list(traj_dry.topology.chains)
         ligand_chain = all_chains[ligand_chain_index]
@@ -201,9 +194,6 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
         plt.savefig(os.path.join(summary_dir, f"{folder}_binding_hotspots.png"), dpi=300)
         plt.close()
 
-        # ====================================================
-        # GENERATE PLOT B: TRULY UNIVERSAL GLOBAL INTERACTION NETWORK
-        # ====================================================
         print("   ↳ Running Global Contact Scan across all fibril chains...", flush=True)
         rec_chains = [c for c in all_chains if c.index != ligand_chain.index]
         fibril_residues = []
@@ -264,9 +254,6 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
         plt.savefig(os.path.join(summary_dir, f"{folder}_interaction_network.png"), dpi=300)
         plt.close()
 
-        # ====================================================
-        # PLOT C: TIME-SERIES STABILITY DASHBOARD
-        # ====================================================
         print("   ↳ Exporting dynamic time-series stability diagnostics...", flush=True)
         time_axis = np.arange(len(rmsd_values)) * frame_interval
         fig, ax1 = plt.subplots(figsize=(10, 5))

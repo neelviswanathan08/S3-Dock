@@ -10,7 +10,6 @@ import openmm as mm
 import openmm.app as app
 import parmed as pmd
 
-# Force immediate terminal output
 os.environ["PYTHONUNBUFFERED"] = "1"
 
 print("====================================================", flush=True)
@@ -40,7 +39,7 @@ if free_energy_method == "none":
     print(" [INFO] Thermodynamic calculations disabled in config. Exiting cleanly.", flush=True)
     sys.exit(0)
 
-# 🚨 FIXED: Cross-environment path enforcement
+# The critical AMBERHOME path
 amber_env_path = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'envs', 'amber_env'))
 mmpbsa_bin = os.path.join(amber_env_path, "bin", "MMPBSA.py")
 
@@ -53,18 +52,21 @@ ff = app.ForceField('amber14-all.xml')
 
 for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_dir, f))]:
     model_md_path = os.path.join(md_dir, folder)
-    cif_path = os.path.join(model_md_path, "topology_template.cif")
+    pdb_template_path = os.path.join(model_md_path, "topology_template.pdb")
     nc_path = os.path.join(model_md_path, "trajectory.nc")
     output_csv = os.path.join(mmpbsa_out_dir, f"{folder}_mmpbsa.csv")
     amber_dir = os.path.join(mmpbsa_out_dir, f"{folder}_amber_temp")
     
+    # -------------------------------------------------------------------
+    # SMART BYPASS
+    # -------------------------------------------------------------------
     if os.path.exists(output_csv):
         print(f"\n====================================================")
         print(f"  [SMART RESUME] Existing data found for {folder}. Skipping.")
         print(f"====================================================")
         continue
         
-    if not os.path.exists(cif_path) or not os.path.exists(nc_path):
+    if not os.path.exists(pdb_template_path) or not os.path.exists(nc_path):
         continue
         
     os.makedirs(amber_dir, exist_ok=True)
@@ -76,7 +78,7 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
     
     try:
         print(" Loading NetCDF trajectory...", flush=True)
-        raw_traj = md.load(nc_path, top=cif_path)
+        raw_traj = md.load(nc_path, top=pdb_template_path)
         total_frames = raw_traj.n_frames
         
         start_frame = config.get('energy_start_frame', total_frames // 2)
@@ -84,9 +86,8 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
         frame_interval = config.get('energy_interval', 1)
         salt_con = config.get('energy_salt_concentration', 0.150)
         
-        # 🚨 FIXED: Out-of-bounds trajectory safety guard
         if start_frame >= total_frames:
-            print(f"  [WARNING] start_frame ({start_frame}) >= total_frames ({total_frames}). Falling back to 0.", flush=True)
+            print(f"  [WARNING] start_frame >= total_frames. Falling back to 0.", flush=True)
             start_frame = 0
         if end_frame > total_frames or end_frame <= start_frame:
             end_frame = total_frames
@@ -154,7 +155,11 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
             "-y", sliced_nc
         ]
         
-        subprocess.run(cmd, cwd=amber_dir, capture_output=True, text=True, check=True)
+        # 🚨 THE FIX: FORCING AMBERHOME INTO THE LINUX ENVIRONMENT
+        amber_env_vars = os.environ.copy()
+        amber_env_vars["AMBERHOME"] = amber_env_path
+        
+        subprocess.run(cmd, cwd=amber_dir, env=amber_env_vars, capture_output=True, text=True, check=True)
         
         delta_g = None
         delta_g_std = None
@@ -172,7 +177,6 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
                             pass
         
         if delta_g is not None:
-            # 🚨 FIXED: Expanded schema layout to fit Phase 6 expectations
             with open(output_csv, "w", newline="") as f:
                 writer = csv.writer(f)
                 writer.writerow(["Model", "Method", "Gas", "Solv", "Delta_G_kcal_mol", "Std_Dev"])
@@ -188,6 +192,9 @@ for folder in [f for f in os.listdir(md_dir) if os.path.isdir(os.path.join(md_di
             
     except subprocess.CalledProcessError as e:
         print(f" [ERROR] AmberTools Engine Crashed for {folder}.")
+        print(f"\n========== AMBERTOOLS CRASH LOG ==========")
+        print(e.stderr)
+        print(f"==========================================\n")
     except Exception as e:
         print(f" [ERROR] Python execution failed for {folder}: {e}", flush=True)
 

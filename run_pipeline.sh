@@ -18,10 +18,10 @@ if [ ! -d "envs/boltz_env" ] || [ ! -d "envs/haddock_env" ] || [ ! -d "envs/open
     exit 1
 fi
 
-RUN_NAME=$(grep '^run_folder_name:' config.yaml | sed 's/.*: *//' | sed 's/ *#.*//' | tr -d '""'"'' ")
+# 🚨 FIXED: Bulletproof YAML parsing using the local Python environment
+RUN_NAME=$(./envs/boltz_env/bin/python -c "import yaml; print(yaml.safe_load(open('config.yaml'))['run_folder_name'])")
+MAX_LOOPS=$(./envs/boltz_env/bin/python -c "import yaml; print(yaml.safe_load(open('config.yaml')).get('max_discovery_loops', 5))")
 RUN_DIR="results/${RUN_NAME}"
-MAX_LOOPS=$(grep '^max_discovery_loops:' config.yaml | sed 's/.*: *//' | sed 's/ *#.*//' | tr -d '""'"'' ")
-if [ -z "$MAX_LOOPS" ]; then MAX_LOOPS=5; fi # Fallback if not in config
 
 echo " Active Workspace: ${RUN_DIR}"
 echo "---------------------------------------------------------------------"
@@ -78,31 +78,30 @@ while [ $LOOP_COUNT -le $MAX_LOOPS ]; do
 done
 
 # =====================================================================
-# DEEP VALIDATION (Phases 3, 4, 5)
-# Only executes if a candidate survived the Discovery Queue
+# DEEP VALIDATION (Phases 3, 4, 5) & FINAL COMPILATION (Phase 6)
 # =====================================================================
+# 🚨 FIXED: Phase 6 is now properly protected by the HAS_CANDIDATES guard
 if [ "$HAS_CANDIDATES" = true ]; then
     echo "---------------------------------------------------------------------"
     echo " Phase 3: Unbiased Blind Global Docking..."
-    # Python script handles its own smart resume
     ./envs/haddock_env/bin/python -u scripts/03_blind_dock.py
     if [ $? -ne 0 ]; then echo "Phase 3 failed!"; exit 1; fi
 
     echo " Phase 4: OpenMM Molecular Dynamics Simulation..."
-    # Python script skips the 6-hour MD if done, but WILL execute the MDTraj Centering
     ./envs/openmm_env/bin/python -u scripts/04_md_simulate.py
     if [ $? -ne 0 ]; then echo "Phase 4 failed!"; exit 1; fi
 
-    echo " Phase 5: Calculating Native OpenMM MM-GBSA Free Energy..."
-    # Force Python execution so updated centered coordinates recalculate cleanly
+    echo " Phase 5: Calculating Native OpenMM Thermodynamics..."
     ./envs/openmm_env/bin/python -u scripts/05_calculate_energy.py
     if [ $? -ne 0 ]; then echo " Phase 5 failed!"; exit 1; fi
-fi
 
-echo "---------------------------------------------------------------------"
-echo " Phase 6: Compiling Final Master Discovery Report..."
-# 🚨 FIXED ENVIRONMENT: Swapped to openmm_env so mdtraj and seaborn load correctly
-./envs/openmm_env/bin/python -u scripts/06_compile_summary.py
+    echo "---------------------------------------------------------------------"
+    echo " Phase 6: Compiling Final Master Discovery Report..."
+    ./envs/openmm_env/bin/python -u scripts/06_compile_summary.py
+else
+    echo "---------------------------------------------------------------------"
+    echo " [PIPELINE ABORTED] No viable candidates discovered. Compilation skipped."
+fi
 
 echo "---------------------------------------------------------------------"
 echo " PIPELINE COMPLETE! Workspace successfully processed."

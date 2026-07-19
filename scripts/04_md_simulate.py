@@ -19,7 +19,7 @@ existing_ld = os.environ.get("LD_LIBRARY_PATH", "")
 os.environ["LD_LIBRARY_PATH"] = ":".join(cuda_paths) + (f":{existing_ld}" if existing_ld else "")
 
 print("====================================================", flush=True)
-print("[PHASE 4] OPENMM EXTREME-HT PRODUCTION MD RUN & POST-PROCESSING", flush=True)
+print("[PHASE 4] OPENMM EXTREME-HT PRODUCTION MD RUN", flush=True)
 print("====================================================", flush=True)
 print(f"[PATH ENFORCER] Injected CUDA Library Paths: {os.environ['LD_LIBRARY_PATH']}", flush=True)
 print("[SYSTEM] Initializing structural biology engines...", flush=True)
@@ -50,7 +50,9 @@ os.makedirs(md_dir, exist_ok=True)
 run_haddock = config.get('run_haddock', False)
 input_structures = {}
 
-# 🚨 DYNAMIC ROUTING LOGIC 🚨
+# -------------------------------------------------------------------
+# DYNAMIC ROUTING LOGIC
+# -------------------------------------------------------------------
 if run_haddock:
     print("[INFO] HADDOCK mode active. Sourcing initial coordinates from docking clusters...", flush=True)
     if not os.path.exists(haddock_dir):
@@ -75,7 +77,6 @@ else:
         
     for file in os.listdir(final_dir):
         if file.endswith(".pdb"):
-            # Strip extensions to match the original model IDs
             model_name = file.replace("_best.pdb", "").replace(".pdb", "")
             input_structures[model_name] = os.path.join(final_dir, file)
 
@@ -88,14 +89,12 @@ log_interval = config.get('md_reporting_interval', 1000)
 checkpoint_interval = log_interval * 5
 target_temp = config.get('md_temperature_kelvin', 310.15)
 
-# Execute the MD loop dynamically
 for model_name, raw_pdb_path in input_structures.items():
     model_md_dir = os.path.join(md_dir, model_name)
     os.makedirs(model_md_dir, exist_ok=True)
     
     start_pdb_path = os.path.join(model_md_dir, "start_complex.pdb")
     
-    # Handle both compressed HADDOCK outputs and uncompressed Boltz PDBs seamlessly
     if raw_pdb_path.endswith(".gz"):
         with gzip.open(raw_pdb_path, 'rb') as f_in:
             with open(start_pdb_path, 'wb') as f_out:
@@ -108,11 +107,17 @@ for model_name, raw_pdb_path in input_structures.items():
 
     nc_path = os.path.join(model_md_dir, "trajectory.nc")
     cif_path = os.path.join(model_md_dir, "topology_template.cif")
+    pdb_template_path = os.path.join(model_md_dir, "topology_template.pdb")
     
-    # 🚨 SMART BYPASS: Skip the OpenMM math if the trajectory already exists!
-    if os.path.exists(nc_path) and os.path.exists(cif_path):
-        print("  [SMART RESUME] Existing trajectory discovered. Bypassing MD simulation.", flush=True)
+    # -------------------------------------------------------------------
+    # SMART BYPASS & LEGACY RESCUE
+    # -------------------------------------------------------------------
+    if os.path.exists(nc_path):
+        print("  [SMART RESUME] Existing trajectory discovered. Bypassing massive MD simulation.", flush=True)
     else:
+        # -------------------------------------------------------------------
+        # MOLECULAR DYNAMICS PIPELINE
+        # -------------------------------------------------------------------
         try:
             print("  [SYSTEM] Repairing structural topology and adding caps via PDBFixer...", flush=True)
             fixer = PDBFixer(filename=start_pdb_path)
@@ -130,7 +135,11 @@ for model_name, raw_pdb_path in input_structures.items():
             print("  [SYSTEM] Packing explicit solvent box (1.0 nm pad + 0.15M NaCl)...", flush=True)
             modeller.addSolvent(forcefield, padding=1.0*unit.nanometers, ionicStrength=0.15*unit.molar)
 
-            print(f"  [SYSTEM] Writing immutable mmCIF template topology map...", flush=True)
+            print(f"  [SYSTEM] Writing immutable PDB template topology map...", flush=True)
+            with open(pdb_template_path, 'w') as f:
+                app.PDBFile.writeFile(modeller.topology, modeller.positions, f)
+                
+            print(f"  [SYSTEM] Writing fast-load mmCIF template topology map...", flush=True)
             with open(cif_path, 'w') as f:
                 app.PDBxFile.writeFile(modeller.topology, modeller.positions, f)
 
@@ -168,7 +177,7 @@ for model_name, raw_pdb_path in input_structures.items():
                     simulation.context.getState(getEnergy=True)
                     print("  [HARDWARE] Success! Secure hardware lock established via OpenCL GPU driver.", flush=True)
                 except Exception as ocl_err:
-                    print(f"  [HARDWARE WARNING] OpenCL tracking matrix compilation failed: {ocl_err}", flush=True)
+                    print(f"  [HARDWARE WARNING] OpenCL tracking matrix failed: {ocl_err}", flush=True)
                     simulation = None
 
             if simulation is None:
@@ -185,7 +194,7 @@ for model_name, raw_pdb_path in input_structures.items():
             simulation.context.setVelocitiesToTemperature(target_temp*unit.kelvin)
 
             checkpoint_path = os.path.join(model_md_dir, "production_failsafe.chk")
-            print(f"  [SYSTEM] Initializing high-speed NetCDF trajectory stream to: {os.path.basename(nc_path)}", flush=True)
+            print(f"  [SYSTEM] Initializing high-speed NetCDF trajectory stream...", flush=True)
 
             try:
                 import parmed
@@ -208,22 +217,7 @@ for model_name, raw_pdb_path in input_structures.items():
             if os.path.exists(nc_path):
                 try: os.remove(nc_path)
                 except: pass
-            continue # Skip centering if the run failed
-
-    # 🚨 MDTRAJ POST-PROCESSING: Trajectory Centering & PBC Wrapping
-    if os.path.exists(nc_path) and os.path.exists(cif_path):
-        print("  [SYSTEM] Wrapping Periodic Boundary Conditions and centering trajectory...", flush=True)
-        try:
-            import mdtraj as md
-            # Load the trajectory and topology into memory
-            traj = md.load(nc_path, top=cif_path)
-            # Center the complex and remove PBC split artifacts
-            traj.image_molecules(inplace=True)
-            # Overwrite the uncentered file with the pristine version
-            traj.save_netcdf(nc_path)
-            print("  [SUCCESS] Trajectory beautifully cleaned, centered, and saved!", flush=True)
-        except Exception as e:
-            print(f"  [WARNING] Trajectory centering failed: {e}", flush=True)
+            continue 
 
 print("----------------------------------------------------", flush=True)
-print("[PHASE 4 COMPLETE] UNIVERSAL PRODUCTION TRAJECTORIES LOADED & CENTERED SUCCESSFULLY!", flush=True)
+print("[PHASE 4 COMPLETE] UNIVERSAL PRODUCTION TRAJECTORIES LOADED SUCCESSFULLY!", flush=True)
