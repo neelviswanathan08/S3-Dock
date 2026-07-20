@@ -26,12 +26,6 @@ if [ ! -d "envs/openmm_env" ]; then
     conda env create --prefix envs/openmm_env -f envs/openmm_env.yml -y
 fi
 
-# 4. Amber Environment
-if [ ! -d "envs/amber_env" ]; then
-    echo " Creating local Amber environment from envs/ directory..."
-    conda env create --prefix envs/amber_env -f envs/amber_env.yml -y
-fi
-
 echo "✅ All environments verified and locked locally."
 echo "---------------------------------------------------------------------"
 cd scripts/ || { echo "❌ ERROR: scripts/ folder missing!"; exit 1; }

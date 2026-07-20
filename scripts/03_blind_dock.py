@@ -46,7 +46,6 @@ def convert_cif_to_pdb_complex(cif_path, output_pdb_path):
         print(f"   [ERROR] CIF to PDB Conversion Error: {e}", flush=True)
         return False
 
-# 🚨 HADDOCK BYPASS LOGIC 🚨
 if not config.get('run_haddock', False):
     print("[SKIP] HADDOCK Global Docking disabled in config.yaml. Bypassing Phase 3.", flush=True)
     print(f"[INFO] Translating {len(archived_models)} Boltz-2 .cif complexes to .pdb format for OpenMM...", flush=True)
