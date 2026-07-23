@@ -26,7 +26,7 @@ if [ ! -d "envs/openmm_env" ]; then
     conda env create --prefix envs/openmm_env -f envs/openmm_env.yml -y
 fi
 
-echo "✅ All environments verified and locked locally."
+echo " All environments verified and locked locally."
 echo "---------------------------------------------------------------------"
-cd scripts/ || { echo "❌ ERROR: scripts/ folder missing!"; exit 1; }
+cd scripts/ || { echo "ERROR: scripts/ folder missing!"; exit 1; }
 

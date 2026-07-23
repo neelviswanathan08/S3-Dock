@@ -18,7 +18,7 @@ if [ ! -d "envs/boltz_env" ] || [ ! -d "envs/haddock_env" ] || [ ! -d "envs/open
     exit 1
 fi
 
-# 🚨 FIXED: Bulletproof YAML parsing using the local Python environment
+# FIXED: Bulletproof YAML parsing using the local Python environment
 RUN_NAME=$(./envs/boltz_env/bin/python -c "import yaml; print(yaml.safe_load(open('config.yaml'))['run_folder_name'])")
 MAX_LOOPS=$(./envs/boltz_env/bin/python -c "import yaml; print(yaml.safe_load(open('config.yaml')).get('max_discovery_loops', 5))")
 RUN_DIR="results/${RUN_NAME}"
@@ -80,7 +80,7 @@ done
 # =====================================================================
 # DEEP VALIDATION (Phases 3, 4, 5) & FINAL COMPILATION (Phase 6)
 # =====================================================================
-# 🚨 FIXED: Phase 6 is now properly protected by the HAS_CANDIDATES guard
+# FIXED: Phase 6 is now properly protected by the HAS_CANDIDATES guard
 if [ "$HAS_CANDIDATES" = true ]; then
     echo "---------------------------------------------------------------------"
     echo " Phase 3: Unbiased Blind Global Docking..."

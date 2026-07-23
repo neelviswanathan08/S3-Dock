@@ -22,7 +22,7 @@ peptide_property: "amphipathic"
 # Override (Leave blank "" to let the pipeline build the H/P pattern automatically)
 custom_pattern: ""
 
-# 🔬 BENCHMARK GATEKEEPER MATRIX
+# BENCHMARK GATEKEEPER MATRIX
 # Set benchmark_mode to true to duplicate the sequence across 1000 slots and select the top 1
 benchmark_mode: true                        
 benchmark_sequence: "MEFVAKLFKFFKDLLGKFLGNN"  # PSM-alpha-3 Control Sequence

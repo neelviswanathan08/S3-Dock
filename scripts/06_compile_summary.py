@@ -37,7 +37,7 @@ summary_dir = os.path.join(run_dir, "final_summary")
 os.makedirs(summary_dir, exist_ok=True)
 
 if not os.path.exists(md_dir) or not os.listdir(md_dir):
-    print("❌ ERROR: Discovery components missing. Cannot compile master report.", flush=True)
+    print(" ERROR: Discovery components missing. Cannot compile master report.", flush=True)
     sys.exit(1)
 
 CONTACT_CUTOFF = 4.5
@@ -109,7 +109,7 @@ def calculate_native_charge(sequence, pH=7.4):
 phase2_metrics = {}
 master_csv_phase2 = os.path.join(final_dir, f"caps_2_{run_name}_master_metrics.csv")
 if os.path.exists(master_csv_phase2):
-    print(f"📦 Discovered Phase 2 Master Metrics. Ingesting Rosetta & Sequence data...", flush=True)
+    print(f" Discovered Phase 2 Master Metrics. Ingesting Rosetta & Sequence data...", flush=True)
     with open(master_csv_phase2, 'r') as p2_file:
         reader = csv.reader(p2_file)
         header = next(reader, None) 
@@ -119,7 +119,7 @@ if os.path.exists(master_csv_phase2):
                     model_id = row[0]
                     phase2_metrics[model_id] = row
 else:
-    print(f"⚠️ WARNING: Phase 2 Metrics File not discovered at {master_csv_phase2}.", flush=True)
+    print(f" WARNING: Phase 2 Metrics File not discovered at {master_csv_phase2}.", flush=True)
 
 # -------------------------------------------------------------------
 # CONCURRENT WORKER FUNCTION
@@ -133,7 +133,7 @@ def compile_candidate(folder):
     if not os.path.exists(pdb_template_path) or not os.path.exists(nc_path):
         return None
         
-    print(f"\n📊 Compiling Advanced Biophysics Reports for Design Vector: {folder}", flush=True)
+    print(f"\n Compiling Advanced Biophysics Reports for Design Vector: {folder}", flush=True)
     
     try:
         raw_traj = md.load(nc_path, top=pdb_template_path)
@@ -176,7 +176,7 @@ def compile_candidate(folder):
         bsa_values = (sasa_rec + sasa_lig - sasa_comp) * 100.0 
         mean_bsa = np.mean(bsa_values)
         
-        # 4. Phase 5 Thermodynamics (🚨 SD FIX APPLIED HERE)
+        # 4. Phase 5 Thermodynamics (SD FIX APPLIED HERE)
         dg_final, dg_std = 0.0, 0.0
         if os.path.exists(mmpbsa_csv):
             with open(mmpbsa_csv, 'r') as f:
@@ -352,11 +352,11 @@ def compile_candidate(folder):
         plt.savefig(os.path.join(summary_dir, f"{folder}_stability_profile.png"), dpi=300)
         plt.close()
         
-        print(f"   ✅ [SUCCESS] Graphic processing and biophysics mapping complete for {folder}.", flush=True)
+        print(f"   [SUCCESS] Graphic processing and biophysics mapping complete for {folder}.", flush=True)
         return compiled_row
 
     except Exception as err:
-        print(f"   ❌ [METRIC RUNTIME WARNING] Visual compilation failed for {folder}: {err}", flush=True)
+        print(f"   [METRIC RUNTIME WARNING] Visual compilation failed for {folder}: {err}", flush=True)
         return None
 
 # -------------------------------------------------------------------
