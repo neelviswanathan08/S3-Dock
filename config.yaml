@@ -3,11 +3,12 @@
 # =====================================================================
 
 # --- 1. FACTORY RUN SETTINGS ---
-run_folder_name: "aSyn_Candidate"
-num_seeds:  400
-top_k: 1           # Default to 1000 tracks (Ignored if benchmark_mode is true)
-samples_per_seed: 1           # 1 structural prediction per fasta seed entry
+run_folder_name: "PSMAlpha3"
+num_seeds:  200
+top_k: 3           # Default to 1000 tracks (Ignored if benchmark_mode is true)
+samples_per_seed: 10           # 1 structural prediction per fasta seed entry
 max_discovery_loops: 5
+deep_dive_samples: 25
 
 # --- 2. PEPTIDE DESIGN CONSTRAINTS ---
 peptide_length: 22
@@ -23,17 +24,17 @@ custom_pattern: ""
 
 # 🔬 BENCHMARK GATEKEEPER MATRIX
 # Set benchmark_mode to true to duplicate the sequence across 1000 slots and select the top 1
-benchmark_mode: false                        
+benchmark_mode: true                        
 benchmark_sequence: "MEFVAKLFKFFKDLLGKFLGNN"  # PSM-alpha-3 Control Sequence
-benchmark_samples: 20                    # Total fasta seeds to write into library.fasta
+benchmark_samples: 10                    # Total fasta seeds to write into library.fasta
 
 # Strict Biochemical Filtering Targets (Used if benchmark_mode is false)
-target_net_charge: +3    # Target electrical charge at pH 7.4
-boman_index_min: 1         # Minimum binding potential/solubility
-hydrophobic_moment_target: 0.5
+target_net_charge: 2.2    # Target electrical charge at pH 7.4
+boman_index_min: 1.5         # Minimum binding potential/solubility
+hydrophobic_moment_target: 0.75
 
 # --- 2b. EVOLUTIONARY OPTIMIZER (MONTE CARLO) SETTINGS ---
-rng_seed: 1000     # Master RNG seed for deep learning and optimizer reproducibility
+rng_seed: 120000     # Master RNG seed for deep learning and optimizer reproducibility
 charge_tolerance: 0.5        
 charge_weight: 10            
 boman_weight: 5              
@@ -85,15 +86,14 @@ pocket_contacts:
   - ["J", 19]
 
 # --- 5. QUALITY CONTROL GATEKEEPERS ---
-enforce_boltz_constraints: false 
+enforce_boltz_constraints: true 
 require_pocket_filter: true
-min_pocket_contacts: 8       
-max_distance_threshold: 5.0
+min_pocket_contacts: 4  
+max_distance_threshold: 8
 use_msa_filter: true
 
 rmsd_cutoff: 3.5
 dist_threshold: 2.5
-max_bad_atoms: 350
 iptm_threshold: 0.20
 tm_threshold: 0.85
 
@@ -109,12 +109,13 @@ haddock_top_clusters: 10
 # --- 7. OPENMM MOLECULAR DYNAMICS SETTINGS ---
 md_simulation_steps: 50000000      # Production-scale trajectory length
 md_reporting_interval: 10000         # Yields exactly 5,000 saved trajectory frames
-md_temperature_kelvin: 310.15       
+md_temperature_kelvin: 310.15
+md_NaCl_concentration: 0.150       
 
 # Universal Energy Parameters
 energy_start_frame: 2500             
 energy_end_frame: 5000               
-energy_interval: 10                  
+energy_interval: 25                  
 energy_salt_concentration: 0.150
 
 # --- 9. MM-GBSA ENERGY CALCULATION SETTINGS ---

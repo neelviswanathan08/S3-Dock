@@ -1,5 +1,9 @@
 import sys
 import os
+import yaml
+import gzip
+import shutil
+import subprocess
 
 # --- UNIVERSAL PATH ENFORCER ---
 cuda_paths = [
@@ -9,7 +13,6 @@ cuda_paths = [
     "/usr/lib/nvidia"
 ]
 try:
-    import subprocess
     conda_base = subprocess.check_output(["conda", "info", "--base"]).decode().strip()
     cuda_paths.append(f"{conda_base}/envs/openmm_env/lib")
 except Exception:
@@ -18,20 +21,15 @@ except Exception:
 existing_ld = os.environ.get("LD_LIBRARY_PATH", "")
 os.environ["LD_LIBRARY_PATH"] = ":".join(cuda_paths) + (f":{existing_ld}" if existing_ld else "")
 
-print("====================================================", flush=True)
-print("[PHASE 4] OPENMM EXTREME-HT PRODUCTION MD RUN", flush=True)
-print("====================================================", flush=True)
-print(f"[PATH ENFORCER] Injected CUDA Library Paths: {os.environ['LD_LIBRARY_PATH']}", flush=True)
-print("[SYSTEM] Initializing structural biology engines...", flush=True)
-sys.stdout.flush()
-
-import yaml
-import gzip
-import shutil
 import openmm as mm
 import openmm.app as app
 import openmm.unit as unit
 from pdbfixer import PDBFixer
+
+print("====================================================", flush=True)
+print("[PHASE 4] OPENMM EXTREME-HT PRODUCTION MD RUN", flush=True)
+print("====================================================", flush=True)
+print(f"[PATH ENFORCER] Injected CUDA Library Paths: {os.environ['LD_LIBRARY_PATH']}", flush=True)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'config.yaml'))
@@ -44,7 +42,6 @@ run_dir = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "results", run_name))
 haddock_dir = os.path.join(run_dir, "haddock_runs")
 final_dir = os.path.join(run_dir, "top_designs")
 md_dir = os.path.join(run_dir, "md_simulations")
-
 os.makedirs(md_dir, exist_ok=True)
 
 run_haddock = config.get('run_haddock', False)
@@ -58,7 +55,6 @@ if run_haddock:
     if not os.path.exists(haddock_dir):
         print(f"[ERROR] No HADDOCK inputs discovered at {haddock_dir}.", flush=True)
         sys.exit(1)
-        
     for model_name in os.listdir(haddock_dir):
         model_haddock_out = os.path.join(haddock_dir, model_name, "haddock3_output")
         found_files = []
@@ -74,7 +70,6 @@ else:
     if not os.path.exists(final_dir):
         print(f"[ERROR] No top_designs folder discovered at {final_dir}.", flush=True)
         sys.exit(1)
-        
     for file in os.listdir(final_dir):
         if file.endswith(".pdb"):
             model_name = file.replace("_best.pdb", "").replace(".pdb", "")
@@ -88,13 +83,24 @@ total_steps = config.get('md_simulation_steps', 10000)
 log_interval = config.get('md_reporting_interval', 1000)
 checkpoint_interval = log_interval * 5
 target_temp = config.get('md_temperature_kelvin', 310.15)
+salt = config.get('md_NaCl_concentration', 0.150)
 
-for model_name, raw_pdb_path in input_structures.items():
+# -------------------------------------------------------------------
+# INDIVIDUAL SIMULATION FUNCTION
+# -------------------------------------------------------------------
+def run_simulation(model_name, raw_pdb_path):
     model_md_dir = os.path.join(md_dir, model_name)
     os.makedirs(model_md_dir, exist_ok=True)
     
     start_pdb_path = os.path.join(model_md_dir, "start_complex.pdb")
+    nc_path = os.path.join(model_md_dir, "trajectory.nc")
+    cif_path = os.path.join(model_md_dir, "topology_template.cif")
+    pdb_template_path = os.path.join(model_md_dir, "topology_template.pdb")
+    log_path = os.path.join(model_md_dir, "openmm_production.log")
     
+    if os.path.exists(nc_path):
+        return f"[SMART RESUME] {model_name} trajectory already exists. Bypassing."
+
     if raw_pdb_path.endswith(".gz"):
         with gzip.open(raw_pdb_path, 'rb') as f_in:
             with open(start_pdb_path, 'wb') as f_out:
@@ -102,122 +108,91 @@ for model_name, raw_pdb_path in input_structures.items():
     else:
         shutil.copy(raw_pdb_path, start_pdb_path)
 
-    print(f"\n[QUEUE] Launching Production Environment Setup for: {model_name}", flush=True)
-    sys.stdout.flush()
+    try:
+        fixer = PDBFixer(filename=start_pdb_path)
+        fixer.findMissingResidues()
+        fixer.findNonstandardResidues()
+        fixer.replaceNonstandardResidues()
+        fixer.findMissingAtoms()
+        fixer.addMissingAtoms()
+        fixer.addMissingHydrogens(7.4)
 
-    nc_path = os.path.join(model_md_dir, "trajectory.nc")
-    cif_path = os.path.join(model_md_dir, "topology_template.cif")
-    pdb_template_path = os.path.join(model_md_dir, "topology_template.pdb")
-    
-    # -------------------------------------------------------------------
-    # SMART BYPASS & LEGACY RESCUE
-    # -------------------------------------------------------------------
-    if os.path.exists(nc_path):
-        print("  [SMART RESUME] Existing trajectory discovered. Bypassing massive MD simulation.", flush=True)
-    else:
-        # -------------------------------------------------------------------
-        # MOLECULAR DYNAMICS PIPELINE
-        # -------------------------------------------------------------------
-        try:
-            print("  [SYSTEM] Repairing structural topology and adding caps via PDBFixer...", flush=True)
-            fixer = PDBFixer(filename=start_pdb_path)
-            fixer.findMissingResidues()
-            fixer.findNonstandardResidues()
-            fixer.replaceNonstandardResidues()
-            fixer.findMissingAtoms()
-            fixer.addMissingAtoms()
-            fixer.addMissingHydrogens(7.4)
+        forcefield = app.ForceField('amber14-all.xml', 'amber14/tip3pfb.xml')
+        modeller = app.Modeller(fixer.topology, fixer.positions)
+        modeller.addSolvent(forcefield, padding=1.0*unit.nanometers, ionicStrength=salt*unit.molar)
 
-            print("  [SYSTEM] Applying AMBER14 forcefield parameters...", flush=True)
-            forcefield = app.ForceField('amber14-all.xml', 'amber14/tip3pfb.xml')
-            modeller = app.Modeller(fixer.topology, fixer.positions)
-            
-            print("  [SYSTEM] Packing explicit solvent box (1.0 nm pad + 0.15M NaCl)...", flush=True)
-            modeller.addSolvent(forcefield, padding=1.0*unit.nanometers, ionicStrength=0.15*unit.molar)
+        with open(pdb_template_path, 'w') as f:
+            app.PDBFile.writeFile(modeller.topology, modeller.positions, f)
+        with open(cif_path, 'w') as f:
+            app.PDBxFile.writeFile(modeller.topology, modeller.positions, f)
 
-            print(f"  [SYSTEM] Writing immutable PDB template topology map...", flush=True)
-            with open(pdb_template_path, 'w') as f:
-                app.PDBFile.writeFile(modeller.topology, modeller.positions, f)
-                
-            print(f"  [SYSTEM] Writing fast-load mmCIF template topology map...", flush=True)
-            with open(cif_path, 'w') as f:
-                app.PDBxFile.writeFile(modeller.topology, modeller.positions, f)
-
-            print("  [SYSTEM] Compiling system physics equations (PME method)...", flush=True)
-            system = forcefield.createSystem(modeller.topology, 
-                                             nonbondedMethod=app.PME, 
-                                             nonbondedCutoff=1.0*unit.nanometers, 
-                                             constraints=app.HBonds)
-            
-            integrator = mm.LangevinMiddleIntegrator(target_temp*unit.kelvin, 1/unit.picosecond, 0.001*unit.picoseconds)
-            
-            available_platforms = [mm.Platform.getPlatform(i).getName() for i in range(mm.Platform.getNumPlatforms())]
-            print(f"  [DIAGNOSTIC] All active OpenMM platforms found: {available_platforms}", flush=True)
-            
-            simulation = None
-            
-            if 'CUDA' in available_platforms:
-                try:
-                    platform = mm.Platform.getPlatformByName('CUDA')
-                    properties = {'CudaPrecision': 'mixed'}
-                    simulation = app.Simulation(modeller.topology, system, integrator, platform, properties)
-                    simulation.context.setPositions(modeller.positions)
-                    simulation.context.getState(getEnergy=True)
-                    print("  [HARDWARE] Successfully locked computing framework to NVIDIA CUDA core array.", flush=True)
-                except Exception as e:
-                    print(f"  [HARDWARE WARNING] CUDA acceleration context rejected: {e}", flush=True)
-                    simulation = None
-            
-            if simulation is None and 'OpenCL' in available_platforms:
-                try:
-                    print("  [HARDWARE] Initializing alternative OpenCL GPU compilation matrix...", flush=True)
-                    platform = mm.Platform.getPlatformByName('OpenCL')
-                    simulation = app.Simulation(modeller.topology, system, integrator, platform)
-                    simulation.context.setPositions(modeller.positions)
-                    simulation.context.getState(getEnergy=True)
-                    print("  [HARDWARE] Success! Secure hardware lock established via OpenCL GPU driver.", flush=True)
-                except Exception as ocl_err:
-                    print(f"  [HARDWARE WARNING] OpenCL tracking matrix failed: {ocl_err}", flush=True)
-                    simulation = None
-
-            if simulation is None:
-                simulation = app.Simulation(modeller.topology, system, integrator)
-                simulation.context.setPositions(modeller.positions)
-                print("  [HARDWARE] Critical Warning: Operating on slow fallback CPU architecture.", flush=True)
-
-            print("  [SYSTEM] Relaxing system matrix to clear atomic overlaps...", flush=True)
-            sys.stdout.flush()
-            simulation.minimizeEnergy()
-            print("  [SUCCESS] System structural grid stabilized successfully.", flush=True)
-
-            print(f"  [SYSTEM] Initializing Maxwell-Boltzmann velocities at {target_temp}K...", flush=True)
-            simulation.context.setVelocitiesToTemperature(target_temp*unit.kelvin)
-
-            checkpoint_path = os.path.join(model_md_dir, "production_failsafe.chk")
-            print(f"  [SYSTEM] Initializing high-speed NetCDF trajectory stream...", flush=True)
-
+        system = forcefield.createSystem(modeller.topology, 
+                                         nonbondedMethod=app.PME, 
+                                         nonbondedCutoff=1.0*unit.nanometers, 
+                                         constraints=app.HBonds)
+        
+        integrator = mm.LangevinMiddleIntegrator(target_temp*unit.kelvin, 1/unit.picosecond, 0.001*unit.picoseconds)
+        
+        available_platforms = [mm.Platform.getPlatform(i).getName() for i in range(mm.Platform.getNumPlatforms())]
+        simulation = None
+        
+        if 'CUDA' in available_platforms:
             try:
-                import parmed
-                simulation.reporters.append(parmed.openmm.NetCDFReporter(nc_path, log_interval))
-            except ImportError:
-                from mdtraj.reporters import NetCDFReporter as SafeNCReporter
-                simulation.reporters.append(SafeNCReporter(nc_path, log_interval))
+                platform = mm.Platform.getPlatformByName('CUDA')
+                properties = {'CudaPrecision': 'mixed'}
+                simulation = app.Simulation(modeller.topology, system, integrator, platform, properties)
+            except:
+                simulation = None
+        
+        if simulation is None and 'OpenCL' in available_platforms:
+            try:
+                platform = mm.Platform.getPlatformByName('OpenCL')
+                simulation = app.Simulation(modeller.topology, system, integrator, platform)
+            except:
+                simulation = None
 
-            simulation.reporters.append(app.CheckpointReporter(checkpoint_path, checkpoint_interval))
-            simulation.reporters.append(app.StateDataReporter(sys.stdout, log_interval, step=True, 
+        if simulation is None:
+            simulation = app.Simulation(modeller.topology, system, integrator)
+
+        simulation.context.setPositions(modeller.positions)
+        simulation.minimizeEnergy()
+        simulation.context.setVelocitiesToTemperature(target_temp*unit.kelvin)
+
+        checkpoint_path = os.path.join(model_md_dir, "production_failsafe.chk")
+        
+        try:
+            import parmed
+            simulation.reporters.append(parmed.openmm.NetCDFReporter(nc_path, log_interval))
+        except ImportError:
+            from mdtraj.reporters import NetCDFReporter as SafeNCReporter
+            simulation.reporters.append(SafeNCReporter(nc_path, log_interval))
+
+        simulation.reporters.append(app.CheckpointReporter(checkpoint_path, checkpoint_interval))
+        
+        # ROUTE LIVE LOGS TO A TEXT FILE TO PREVENT TERMINAL SPAM
+        with open(log_path, 'w') as log_file:
+            simulation.reporters.append(app.StateDataReporter(log_file, log_interval, step=True, 
                                                               potentialEnergy=True, temperature=True, speed=True))
-
-            print(f"  [RUN] Executing {total_steps} calculation timesteps...", flush=True)
-            sys.stdout.flush()
             simulation.step(total_steps)
-            print(f"  [SUCCESS] Trajectory processing complete for {model_name}!", flush=True)
             
-        except Exception as e:
-            print(f"  [ERROR] OpenMM production engine failed for {model_name}: {e}", flush=True)
-            if os.path.exists(nc_path):
-                try: os.remove(nc_path)
-                except: pass
-            continue 
+        return f"[SUCCESS] Trajectory processing complete for {model_name}!"
+
+    except Exception as e:
+        if os.path.exists(nc_path):
+            try: os.remove(nc_path)
+            except: pass
+        return f"[ERROR] OpenMM production engine failed for {model_name}: {e}"
+
+# -------------------------------------------------------------------
+# THE EXECUTION ENGINE (STRICTLY SEQUENTIAL)
+# -------------------------------------------------------------------
+print(f"\n[INFO] Initiating STRICTLY SEQUENTIAL MD Executions...", flush=True)
+print(f"[NOTE] Live tracking data is being routed to: results/{run_name}/md_simulations/<model>/openmm_production.log", flush=True)
+
+for model_name, raw_pdb_path in input_structures.items():
+    print(f"   -> Starting {model_name}...", flush=True)
+    result = run_simulation(model_name, raw_pdb_path)
+    print(result, flush=True)
 
 print("----------------------------------------------------", flush=True)
 print("[PHASE 4 COMPLETE] UNIVERSAL PRODUCTION TRAJECTORIES LOADED SUCCESSFULLY!", flush=True)

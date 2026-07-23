@@ -16,6 +16,11 @@ from Bio.PDB import MMCIFParser, MMCIFIO, Select
 from Bio.SeqUtils.ProtParam import ProteinAnalysis
 from Bio import BiopythonWarning
 
+# Initialize SOTA Rosetta Engine (Runs once silently)
+import pyrosetta
+from pyrosetta.rosetta.protocols.analysis import InterfaceAnalyzerMover
+pyrosetta.init("-mute all")
+
 warnings.simplefilter('ignore', BiopythonWarning)
 
 print("====================================================", flush=True)
@@ -55,11 +60,6 @@ class TargetSelect(Select):
 # UNIVERSAL US-ALIGN ENGINE (MONOMER & MULTIMER)
 # ---------------------------------------------------------------------------
 def calculate_universal_tm_score(pred_cif_path, ref_cif_path):
-    """
-    UNIVERSAL FILTER: Uses US-align with the -mm 1 flag.
-    Automatically handles monomers, heteromers, and fibrils.
-    Immune to chain ID scrambling, card-stacking, and coordinate offsets.
-    """
     try:
         usalign_bin = None
         for binary_name in ["USalign", "usalign", "US-align", "us-align"]:
@@ -162,29 +162,28 @@ def calculate_3d_helicity_score(pred_cif_path, chain_id=binder_id):
         return round(helical_bonds / total_checks, 3)
     except: return 0.0
 
-def run_prodigy_scoring(cif_path, model_id):
+def run_rosetta_scoring(cif_path):
+    """
+    SOTA Rosetta Interface Analyzer.
+    Replaces PRODIGY. Calculates thermodynamic penalty of separation.
+    """
     try:
-        receptor_str = ",".join(target_chains)
-        prodigy_bin = os.path.join(os.path.dirname(sys.executable), "prodigy")
-        prodigy_cmd = f"{prodigy_bin} {cif_path} --selection {receptor_str} {binder_id}"
-        result = subprocess.run(prodigy_cmd, shell=True, capture_output=True, text=True)
-        delta_g, kd_str = 999.0, "N/A"
-        kd_molar = 999.0
+        pose = pyrosetta.pose_from_file(cif_path)
         
-        for line in result.stdout.split('\n'):
-            if "predicted binding affinity" in line.lower():
-                try: 
-                    delta_g = float(line.split()[-1])
-                except: pass
-            if "predicted dissociation constant" in line.lower(): 
-                kd_str = line.split()[-1]
-                
-        if delta_g != 999.0:
-            kd_molar = np.exp(delta_g / (0.0019872 * 298.15))
-            
-        return delta_g, kd_str, kd_molar
-    except: 
-        return 999.0, "N/A", 999.0
+        # Build interface string (e.g., "AB_C")
+        receptor_str = "".join(target_chains)
+        interface_str = f"{receptor_str}_{binder_id}"
+        
+        iam = InterfaceAnalyzerMover(interface_str)
+        iam.set_compute_packstat(False) # Optimization for speed
+        iam.set_compute_interface_energy(True)
+        iam.apply(pose)
+        
+        dG_separated = iam.get_interface_dG()
+        return round(dG_separated, 3)
+    except Exception as e:
+        print(f"   -> [WARNING] Rosetta scoring failed: {e}", flush=True)
+        return 999.0
 
 def parse_fasta(path):
     seqs = []
@@ -212,7 +211,7 @@ if not os.path.exists(master_csv):
         csv.writer(f).writerow([
             "Model_ID", "Seed_ID", "Binder_Sequence", "Seq_Length", "MW_kDa", "pI", "GRAVY",
             "Boltz_ipTM", "Complex_TM_Score", "3D_Helicity_Score", 
-            "PRODIGY_dG_kcal_mol", "PRODIGY_Kd_Text", "PRODIGY_Kd_Molar_Value", "Status"
+            "Rosetta_dG_separated", "Status"
         ])
 
 enforce_boltz = config.get('enforce_boltz_constraints', False)
@@ -335,13 +334,13 @@ for idx, (seq_id, sequence) in enumerate(jobs, 1):
         passed_structure_filter = True
         status_msg = ""
         
-        # 🚨 1. UNIVERSAL AI CONFIDENCE GATE
+        # 1. UNIVERSAL AI CONFIDENCE GATE
         if iptm_score > 0.0 and iptm_score < iptm_cutoff:
             passed_structure_filter = False
             status_msg = f"REJECTED: Hallucination (ipTM {iptm_score:.2f} < {iptm_cutoff})"
             print(f"   -> [REJECTED] {model_id} interaction does not meet Boltz confidence thresholds ({status_msg})", flush=True)
 
-        # 🚨 2. BLIND PREDICTIVE POCKET FILTER
+        # 2. BLIND PREDICTIVE POCKET FILTER
         if passed_structure_filter and require_pocket_filter and 'pocket_contacts' in config:
             passed_pocket = check_interface_contacts(
                 best_cif_path, binder_id, config['pocket_contacts'], 
@@ -352,7 +351,7 @@ for idx, (seq_id, sequence) in enumerate(jobs, 1):
                 status_msg = "REJECTED: Off-Target Binding (Failed Pocket Filter)"
                 print(f"   -> [REJECTED] {model_id} spontaneously bound to the wrong region.", flush=True)
 
-        # 🚨 3. UNIVERSAL QUATERNARY STRUCTURE GATE
+        # 3. UNIVERSAL QUATERNARY STRUCTURE GATE
         score_metric = 0.0
         if passed_structure_filter:
             complex_tm_score = calculate_universal_tm_score(best_cif_path, target_cif)
@@ -366,42 +365,135 @@ for idx, (seq_id, sequence) in enumerate(jobs, 1):
             else:
                 status_msg = f"PASSED (TM-Score: {complex_tm_score:.3f})"
 
-        # 🚨 4. PRODIGY SCORING
-        dG, Kd_text, Kd_molar = 999.0, "N/A", 999.0
+        # 4. ROSETTA SCORING (Replaced PRODIGY)
+        dG = 999.0
         if passed_structure_filter:
-            dG, Kd_text, Kd_molar = run_prodigy_scoring(best_cif_path, model_id)
+            dG = run_rosetta_scoring(best_cif_path)
 
         # Export metrics immediately
         with open(master_csv, "a", newline="") as f:
             csv.writer(f).writerow([
                 model_id, seq_id, sequence, seq_len, mw, pi, gravy,
-                iptm_score, round(score_metric, 3), helicity_score, dG, Kd_text, f"{Kd_molar:.3e}" if Kd_molar != 999.0 else "N/A", status_msg
+                iptm_score, round(score_metric, 3), helicity_score, dG, status_msg
             ])
 
         if passed_structure_filter and dG != 999.0:
             global_candidates.append({
                 'path': best_cif_path, 'id': model_id, 'seq_id': seq_id, 'iptm': iptm_score, 
-                'metric': score_metric, 'helicity': helicity_score, 'dG': dG, 'Kd_text': Kd_text, 'Kd_molar': Kd_molar
+                'metric': score_metric, 'helicity': helicity_score, 'dG': dG
             })
-            print(f"   -> [EVALUATED] {model_id} | dG: {dG} kcal/mol | ipTM: {iptm_score:.3f} | TM-Score: {score_metric:.3f} | pI: {pi}", flush=True)
+            print(f"   -> [EVALUATED] {model_id} | Rosetta dG: {dG} kcal/mol | ipTM: {iptm_score:.3f} | TM-Score: {score_metric:.3f}", flush=True)
 
     print("----------------------------------------------------", flush=True)
 
 # =====================================================================
-# GLOBAL CHAMPION SELECTION (THE TOP-K BOTTLENECK)
+# GLOBAL CHAMPION SELECTION & DEEP DIVE PROTOCOL
 # =====================================================================
 if not os.path.exists(final_dir):
     os.makedirs(final_dir, exist_ok=True)
 
 if global_candidates:
-    global_candidates.sort(key=lambda x: float(x['dG']))
-    top_k = min(config.get("top_k", 3), len(global_candidates))
+    # 1. DEDUPLICATE: Get only the absolute best score for each unique sequence
+    unique_seq_map = {}
+    for cand in global_candidates:
+        sid = cand['seq_id']
+        if sid not in unique_seq_map or cand['dG'] < unique_seq_map[sid]['dG']:
+            unique_seq_map[sid] = cand
+            
+    # 2. Sort unique sequences by their best dG (lowest is best)
+    ranked_unique_seqs = sorted(unique_seq_map.values(), key=lambda x: float(x['dG']))
+    top_k = min(config.get("top_k", 3), len(ranked_unique_seqs))
+    top_seeds = ranked_unique_seqs[:top_k]
     
-    print(f"\n[GLOBAL CHAMPIONS] Selected the Top {top_k} Candidates for downstream MD refinement:", flush=True)
-    for i in range(top_k):
-        candidate = global_candidates[i]
-        print(f"   #{i+1}: {candidate['id']} | dG: {candidate['dG']} kcal/mol | ipTM: {candidate['iptm']:.3f} | TM-Score: {candidate['metric']:.3f}", flush=True)
-        shutil.copy(candidate['path'], os.path.join(final_dir, f"{candidate['id']}_best.cif"))
-    print("\n", flush=True)
+    is_benchmark = config.get('benchmark_mode', False)
+    
+    if is_benchmark:
+        print(f"\n[BENCHMARK MODE] Selected Top {top_k} Unique Candidates (Bypassing Deep Dive):", flush=True)
+        for i, candidate in enumerate(top_seeds):
+            print(f"   #{i+1}: {candidate['id']} | Rosetta dG: {candidate['dG']} kcal/mol", flush=True)
+            shutil.copy(candidate['path'], os.path.join(final_dir, f"{candidate['id']}_best.cif"))
+        print("\n", flush=True)
+        
+    else:
+        deep_dive_samples = config.get('deep_dive_samples', 10)
+        print(f"\n[DEEP DIVE INITIATED] Re-sampling the Top {top_k} sequences with {deep_dive_samples} structures each...", flush=True)
+        
+        # Create a dictionary to easily grab the raw sequence string for the YAML
+        job_dict = dict(jobs)
+        boltz_bin = os.path.join(os.path.dirname(sys.executable), "boltz")
+        
+        for i, candidate in enumerate(top_seeds):
+            seq_id = candidate['seq_id']
+            sequence = job_dict[seq_id]
+            print(f"\n--- [DEEP DIVE] Candidate #{i+1}: {seq_id} (Initial dG: {candidate['dG']}) ---", flush=True)
+            
+            deep_dir = os.path.join(run_dir, f"{seq_id}_DEEP")
+            os.makedirs(deep_dir, exist_ok=True)
+            yaml_filename = os.path.join(deep_dir, f"{seq_id}_deep.yaml")
+            
+            # Rebuild YAML for Deep Dive
+            yaml_lines = ["version: 1", "sequences:"]
+            for chain, seq in config['target_chains_and_sequences'].items():
+                yaml_lines.append(f"  - protein:\n      id: {chain}\n      sequence: '{seq}'")
+                if use_msa and os.path.exists(cached_msa_path):
+                    yaml_lines.append(f"      msa: '{cached_msa_path}'")
+            yaml_lines.append(f"  - protein:\n      id: {binder_id}\n      sequence: '{sequence}'")
+            yaml_lines.append("\ntemplates:")
+            for chain in target_chains: 
+                yaml_lines.append(f"  - cif: '{target_cif}'\n    chain_id: '{chain}'\n    template_id: '{chain}'")
+            if 'pocket_contacts' in config and config['pocket_contacts'] and enforce_boltz:
+                yaml_lines.append("\nconstraints:\n  - pocket:\n" + f"      binder: {binder_id}\n      contacts:")
+                for contact in config['pocket_contacts']: yaml_lines.append(f"        - [{contact[0]}, {contact[1]}]")
+                yaml_lines.append(f"      max_distance: {config.get('max_distance_threshold', 5.0)}")
+            
+            with open(yaml_filename, "w") as f: f.write("\n".join(yaml_lines))
+            
+            # Execute Boltz-2 Deep Dive
+            print(f"   -> Booting Boltz-2 for {deep_dive_samples} exhaustive samples...", flush=True)
+            boltz_cmd = f"{boltz_bin} predict {yaml_filename} --use_potentials --out_dir {deep_dir} --recycling_steps 10 --diffusion_samples {deep_dive_samples} --override"
+            if not use_msa or os.path.exists(cached_msa_path):
+                boltz_cmd += " --use_msa_server False"
+            else:
+                boltz_cmd += " --use_msa_server"
+            
+            subprocess.run(boltz_cmd, shell=True, capture_output=True, text=True)
+            
+            # Evaluate the Deep Dive outputs
+            deep_candidates = []
+            for root, _, files in os.walk(deep_dir):
+                for file in files:
+                    if file.endswith(".cif") and file != os.path.basename(target_cif) and "_target_only" not in file:
+                        cif_path = os.path.join(root, file)
+                        passed = True
+                        
+                        # Apply Geometric Filters
+                        if passed and require_pocket_filter and 'pocket_contacts' in config:
+                            if not check_interface_contacts(cif_path, binder_id, config['pocket_contacts'], config.get('max_distance_threshold', 5.0), min_pocket_contacts):
+                                passed = False
+                        
+                        if passed:
+                            tm = calculate_universal_tm_score(cif_path, target_cif)
+                            if tm < config.get('tm_threshold', 0.65):
+                                passed = False
+                        
+                        # Apply Thermodynamic Filter
+                        if passed:
+                            dG = run_rosetta_scoring(cif_path)
+                            if dG != 999.0:
+                                deep_candidates.append({'path': cif_path, 'dG': dG})
+            
+            # Select the absolute best from the Deep Dive
+            if deep_candidates:
+                deep_candidates.sort(key=lambda x: float(x['dG']))
+                best_deep = deep_candidates[0]
+                survival_rate = (len(deep_candidates) / deep_dive_samples) * 100
+                
+                print(f"   -> [METRICS] {len(deep_candidates)}/{deep_dive_samples} models passed rigid geometry constraints ({survival_rate:.1f}% Survival).", flush=True)
+                print(f"   -> [CHAMPION SECURED] Deep Dive Best dG: {best_deep['dG']} kcal/mol", flush=True)
+                shutil.copy(best_deep['path'], os.path.join(final_dir, f"{seq_id}_DEEP_best.cif"))
+            else:
+                print(f"   -> [FATAL FLUKE] All {deep_dive_samples} deep dive models failed. The initial score was a geometric anomaly. Candidate discarded.", flush=True)
+                
+    print("\n[PHASE 2/3 COMPLETE] Ready for Phase 4 Molecular Dynamics.", flush=True)
 else:
     print(f"\n[WARNING] No structural variations across any seeds passed validation gates.", flush=True)
