@@ -37,7 +37,7 @@ summary_dir = os.path.join(run_dir, "final_summary")
 os.makedirs(summary_dir, exist_ok=True)
 
 if not os.path.exists(md_dir) or not os.listdir(md_dir):
-    print(" ERROR: Discovery components missing. Cannot compile master report.", flush=True)
+    print("❌ ERROR: Discovery components missing. Cannot compile master report.", flush=True)
     sys.exit(1)
 
 CONTACT_CUTOFF = 4.5
@@ -89,13 +89,11 @@ def calculate_native_charge(sequence, pH=7.4):
     pKa_neg = {'D': 3.65, 'E': 4.25, 'C': 8.18, 'Y': 10.07, 'C_term': 2.34}
     
     charge = 0.0
-    # Positive groups (including N-terminus)
     for aa, pka in pKa_pos.items():
         count = sequence.count(aa) if aa != 'N_term' else 1
         if count > 0:
             charge += count * (10**(pka - pH)) / (1 + 10**(pka - pH))
             
-    # Negative groups (including C-terminus)
     for aa, pka in pKa_neg.items():
         count = sequence.count(aa) if aa != 'C_term' else 1
         if count > 0:
@@ -109,7 +107,7 @@ def calculate_native_charge(sequence, pH=7.4):
 phase2_metrics = {}
 master_csv_phase2 = os.path.join(final_dir, f"caps_2_{run_name}_master_metrics.csv")
 if os.path.exists(master_csv_phase2):
-    print(f" Discovered Phase 2 Master Metrics. Ingesting Rosetta & Sequence data...", flush=True)
+    print(f"📦 Discovered Phase 2 Master Metrics. Ingesting Rosetta & Sequence data...", flush=True)
     with open(master_csv_phase2, 'r') as p2_file:
         reader = csv.reader(p2_file)
         header = next(reader, None) 
@@ -119,7 +117,7 @@ if os.path.exists(master_csv_phase2):
                     model_id = row[0]
                     phase2_metrics[model_id] = row
 else:
-    print(f" WARNING: Phase 2 Metrics File not discovered at {master_csv_phase2}.", flush=True)
+    print(f"⚠️ WARNING: Phase 2 Metrics File not discovered at {master_csv_phase2}.", flush=True)
 
 # -------------------------------------------------------------------
 # CONCURRENT WORKER FUNCTION
@@ -133,7 +131,7 @@ def compile_candidate(folder):
     if not os.path.exists(pdb_template_path) or not os.path.exists(nc_path):
         return None
         
-    print(f"\n Compiling Advanced Biophysics Reports for Design Vector: {folder}", flush=True)
+    print(f"\n📊 Compiling Advanced Biophysics Reports for Design Vector: {folder}", flush=True)
     
     try:
         raw_traj = md.load(nc_path, top=pdb_template_path)
@@ -147,11 +145,29 @@ def compile_candidate(folder):
         if end_frame == -1 or end_frame > total_frames or end_frame <= start_frame: end_frame = total_frames
         
         traj = raw_traj[start_frame:end_frame:frame_interval]
+        
+        # 👇 NEW VISUAL EXPORT PIPELINE 👇
+        # 1. Image molecules to prevent periodic boundary teleports
         traj.image_molecules(inplace=True)
         
+        # 2. Superpose to lock the receptor in place (No spinning!)
+        protein_alignment_idx = traj.topology.select("protein")
+        traj.superpose(traj, 0, atom_indices=protein_alignment_idx)
+        
+        # 3. Strip the water
         dry_idx = traj.topology.select('protein')
         traj_dry = traj.atom_slice(dry_idx)
         
+        # 4. Save clean assets directly to the final_summary folder
+        fixed_pdb_path = os.path.join(summary_dir, f"{folder}_chimerax_topology.pdb")
+        fixed_dcd_path = os.path.join(summary_dir, f"{folder}_chimerax_trajectory.dcd")
+        
+        if not os.path.exists(fixed_pdb_path):
+            traj_dry[0].save_pdb(fixed_pdb_path)
+        if not os.path.exists(fixed_dcd_path):
+            traj_dry.save_dcd(fixed_dcd_path)
+        # 👆 END VISUAL EXPORT PIPELINE 👆
+
         ligand_chain_index = traj_dry.topology.n_chains - 1
         rec_idx = traj_dry.topology.select(f'not chainid {ligand_chain_index}')
         lig_idx = traj_dry.topology.select(f'chainid {ligand_chain_index}')
@@ -176,7 +192,7 @@ def compile_candidate(folder):
         bsa_values = (sasa_rec + sasa_lig - sasa_comp) * 100.0 
         mean_bsa = np.mean(bsa_values)
         
-        # 4. Phase 5 Thermodynamics (SD FIX APPLIED HERE)
+        # 4. Phase 5 Thermodynamics
         dg_final, dg_std = 0.0, 0.0
         if os.path.exists(mmpbsa_csv):
             with open(mmpbsa_csv, 'r') as f:
@@ -185,7 +201,7 @@ def compile_candidate(folder):
                 for row in reader:
                     if len(row) >= 6:
                         dg_final = float(row[4])
-                        dg_std = float(row[5]) # Directly extract the SD instead of recalculating it
+                        dg_std = float(row[5]) 
         
         # 5. Data Alignment & Biophysical Native Calculations
         p2_data = phase2_metrics.get(folder, ["N/A"] * 12)
@@ -204,28 +220,28 @@ def compile_candidate(folder):
         hmoment = calculate_hydrophobic_moment(seq)
             
         compiled_row = [
-            folder,                   # Design_Target
-            p2_data[1],               # Seed_ID
-            p2_data[2],               # Binder_Sequence
-            p2_data[3],               # Seq_Length
-            p2_data[4],               # MW_kDa
-            p2_data[7],               # Boltz_ipTM
-            p2_data[8],               # Complex_TM_Score
-            p2_data[10],              # Rosetta_dG_separated
-            p2_data[11],              # Phase_2_Status
+            folder,                   
+            p2_data[1],               
+            p2_data[2],               
+            p2_data[3],               
+            p2_data[4],               
+            p2_data[7],               
+            p2_data[8],               
+            p2_data[10],              
+            p2_data[11],              
             round(dg_final, 2) if dg_final != 0.0 else "N/A", 
             round(dg_std, 2) if dg_std != 0.0 else "N/A",     
             round(mean_rmsd, 2),      
             round(mean_hbonds, 1),    
             round(mean_bsa, 1),
-            round(net_charge, 2),     # NEW: Native Charge
-            counts["pos"],            # NEW: Positive Res
-            counts["neg"],            # NEW: Negative Res
-            counts["polar"],          # NEW: Polar Res
-            counts["arom"],           # NEW: Aromatic Res
-            counts["hydro"],          # NEW: Hydrophobic Res
-            round(avg_kd, 2),         # NEW: Avg Hydrophobicity KD
-            round(hmoment, 3)         # NEW: Hydrophobic Moment uH
+            round(net_charge, 2),     
+            counts["pos"],            
+            counts["neg"],            
+            counts["polar"],          
+            counts["arom"],           
+            counts["hydro"],          
+            round(avg_kd, 2),         
+            round(hmoment, 3)         
         ]
         
         # -------------------------------------------------------------------
@@ -352,11 +368,11 @@ def compile_candidate(folder):
         plt.savefig(os.path.join(summary_dir, f"{folder}_stability_profile.png"), dpi=300)
         plt.close()
         
-        print(f"   [SUCCESS] Graphic processing and biophysics mapping complete for {folder}.", flush=True)
+        print(f"   ✅ [SUCCESS] Graphic & trajectory exports complete for {folder}.", flush=True)
         return compiled_row
 
     except Exception as err:
-        print(f"   [METRIC RUNTIME WARNING] Visual compilation failed for {folder}: {err}", flush=True)
+        print(f"   ❌ [METRIC RUNTIME WARNING] Visual compilation failed for {folder}: {err}", flush=True)
         return None
 
 # -------------------------------------------------------------------

@@ -9,7 +9,7 @@ import openmm.app as app
 import openmm.unit as unit
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-# Force immediate terminal output
+# ⚡ Force immediate terminal output
 os.environ["PYTHONUNBUFFERED"] = "1"
 
 print("====================================================", flush=True)
@@ -31,7 +31,7 @@ mmgbsa_out_dir = os.path.join(run_dir, "mmgbsa_results")
 os.makedirs(mmgbsa_out_dir, exist_ok=True)
 
 if not os.path.exists(md_dir) or not os.listdir(md_dir):
-    print("ERROR: No active production coordinates discovered. Exiting.", flush=True)
+    print("❌ ERROR: No active production coordinates discovered. Exiting.", flush=True)
     sys.exit(1)
 
 run_concurrently = config.get("concurrent_md_execution", False)
@@ -46,10 +46,10 @@ def process_mmgbsa(folder):
     output_csv = os.path.join(mmgbsa_out_dir, f"{folder}_mmpbsa.csv")
     
     if os.path.exists(output_csv):
-        return f" [SMART RESUME] Existing MM-GBSA data found for {folder}. Skipping."
+        return f" ⏩ [SMART RESUME] Existing MM-GBSA data found for {folder}. Skipping."
         
     if not os.path.exists(cif_path) or not os.path.exists(nc_path):
-        return f" [WARNING] Missing topology or trajectory for {folder}. Skipping."
+        return f" ⚠️ [WARNING] Missing topology or trajectory for {folder}. Skipping."
     
     try:
         # Load trajectory
@@ -110,6 +110,10 @@ def process_mmgbsa(folder):
             
             dg = e_comp - (e_rec + e_lig)
             energies.append(dg)
+            
+            # 👇 REAL-TIME SPEEDOMETER INJECTED HERE 👇
+            if (i + 1) % 10 == 0 or i == 0:
+                print(f"   ▶ [{folder}] Frame {i+1:03d}/{traj.n_frames} | Running Avg: {np.mean(energies):.2f} kcal/mol", flush=True)
                     
         dg_final = np.mean(energies)
         dg_std = np.std(energies)
@@ -120,12 +124,12 @@ def process_mmgbsa(folder):
             writer.writerow(["Model", "Method", "Gas", "Solv", "Delta_G_kcal_mol", "Std_Dev"])
             writer.writerow([folder, "MM-GBSA", "0.0", "0.0", round(dg_final, 2), round(dg_std, 2)])
         
-        return f" FINAL PRODUCTION MM-GBSA ΔG for {folder}: {dg_final:.2f} ± {dg_std:.2f} kcal/mol"
+        return f" ✅ FINAL PRODUCTION MM-GBSA ΔG for {folder}: {dg_final:.2f} ± {dg_std:.2f} kcal/mol"
         
     except Exception as e:
         if os.path.exists(output_csv):
             os.remove(output_csv)
-        return f" [ERROR] Calculation failed for {folder}: {e}"
+        return f" ❌ [ERROR] Calculation failed for {folder}: {e}"
 
 # -------------------------------------------------------------------
 # THE EXECUTION ENGINE
