@@ -90,13 +90,8 @@ enforce_boltz_constraints: true
 require_pocket_filter: true
 min_pocket_contacts: 4  
 max_distance_threshold: 8
-use_msa_filter: true
-
-rmsd_cutoff: 3.5
-dist_threshold: 2.5
-iptm_threshold: 0.20
 tm_threshold: 0.85
-
+use_msa_filter: true
 
 # --- 6. HADDOCK3 BLIND GLOBAL DOCKING SETTINGS ---
 run_haddock: false                  # Set to true to run HADDOCK, false to skip to OpenMM
@@ -115,8 +110,8 @@ md_NaCl_concentration: 0.150
 # Universal Energy Parameters
 energy_start_frame: 2500             
 energy_end_frame: 5000               
-energy_interval: 25                  
+energy_interval: 10                  
 energy_salt_concentration: 0.150
 
 # --- 9. MM-GBSA ENERGY CALCULATION SETTINGS ---
-energy_reporting_interval: 1        # Evaluates exactly 100 evenly distributed coordinates
+energy_reporting_interval: 2.5       # Evaluates exactly 100 evenly distributed coordinates
