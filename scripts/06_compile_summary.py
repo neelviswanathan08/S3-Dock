@@ -4,6 +4,7 @@ import yaml
 import csv
 import warnings
 import math
+import argparse
 import numpy as np
 import mdtraj as md
 import matplotlib
@@ -21,8 +22,25 @@ print("[PHASE 6] AUTOMATED GLOBAL DISCOVERY COMPILER (CONCURRENT)", flush=True)
 print("====================================================", flush=True)
 sys.stdout.flush()
 
+# ---------------------------------------------------------------------------
+# 0. CLI & DYNAMIC ROUTER
+# ---------------------------------------------------------------------------
+parser = argparse.ArgumentParser()
+parser.add_argument("--config", type=str, default="config.yaml", 
+                    help="Name of the specific config YAML file to use.")
+cli_args, unknown = parser.parse_known_args()
+
+# 1. Setup absolute paths using dynamic config
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'config.yaml'))
+
+if os.path.isabs(cli_args.config):
+    CONFIG_PATH = cli_args.config
+else:
+    CONFIG_PATH = os.path.abspath(os.path.join(SCRIPT_DIR, '..', cli_args.config))
+
+if not os.path.exists(CONFIG_PATH):
+    print(f"❌ [FATAL ERROR] Config file not found at: {CONFIG_PATH}", flush=True)
+    sys.exit(1)
 
 with open(CONFIG_PATH, 'r') as file:
     config = yaml.safe_load(file)

@@ -4,6 +4,7 @@ import yaml
 import gzip
 import shutil
 import subprocess
+import argparse
 
 # --- UNIVERSAL PATH ENFORCER ---
 cuda_paths = [
@@ -31,8 +32,25 @@ print("[PHASE 4] OPENMM EXTREME-HT PRODUCTION MD RUN", flush=True)
 print("====================================================", flush=True)
 print(f"[PATH ENFORCER] Injected CUDA Library Paths: {os.environ['LD_LIBRARY_PATH']}", flush=True)
 
+# ---------------------------------------------------------------------------
+# 0. CLI & DYNAMIC ROUTER
+# ---------------------------------------------------------------------------
+parser = argparse.ArgumentParser()
+parser.add_argument("--config", type=str, default="config.yaml", 
+                    help="Name of the specific config YAML file to use.")
+cli_args, unknown = parser.parse_known_args()
+
+# 1. Setup absolute paths using dynamic config
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'config.yaml'))
+
+if os.path.isabs(cli_args.config):
+    CONFIG_PATH = cli_args.config
+else:
+    CONFIG_PATH = os.path.abspath(os.path.join(SCRIPT_DIR, '..', cli_args.config))
+
+if not os.path.exists(CONFIG_PATH):
+    print(f"❌ [FATAL ERROR] Config file not found at: {CONFIG_PATH}", flush=True)
+    sys.exit(1)
 
 with open(CONFIG_PATH, 'r') as file:
     config = yaml.safe_load(file)

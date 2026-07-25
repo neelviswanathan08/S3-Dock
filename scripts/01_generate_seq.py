@@ -13,18 +13,28 @@ print("[SYSTEM] S3-DOCK: PHASE 1 - SEQUENCE GENERATION ENGINE", flush=True)
 print("====================================================", flush=True)
 
 # ---------------------------------------------------------------------------
-# 0. CLI: allow overriding the RNG seed without touching config.yaml
+# 0. CLI & DYNAMIC ROUTER
 # ---------------------------------------------------------------------------
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, default=None,
                      help="Override config.yaml's rng_seed for this run.")
-cli_args = parser.parse_args()
+parser.add_argument("--config", type=str, default="config.yaml", 
+                    help="Name of the specific config YAML file to use.")
+cli_args, unknown = parser.parse_known_args()
 
 # ---------------------------------------------------------------------------
-# 1. Setup absolute paths
+# 1. Setup absolute paths using dynamic config
 # ---------------------------------------------------------------------------
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'config.yaml'))
+
+if os.path.isabs(cli_args.config):
+    CONFIG_PATH = cli_args.config
+else:
+    CONFIG_PATH = os.path.abspath(os.path.join(SCRIPT_DIR, '..', cli_args.config))
+
+if not os.path.exists(CONFIG_PATH):
+    print(f"❌ [FATAL ERROR] Config file not found at: {CONFIG_PATH}", flush=True)
+    sys.exit(1)
 
 with open(CONFIG_PATH, 'r') as file:
     config = yaml.safe_load(file)
