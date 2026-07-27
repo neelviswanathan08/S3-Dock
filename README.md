@@ -1,76 +1,108 @@
 # 🧬 S3-Dock
-### **Sequence-to-Structure-to-Simulation Pipeline for Feature-Based Peptide Design**
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)]()
-[![License](https://img.shields.io/badge/License-MIT-green.svg)]()
-[![Platform](https://img.shields.io/badge/Platform-Linux-lightgrey.svg)]()
-[![CUDA](https://img.shields.io/badge/CUDA-12.x-success.svg)]()
+> **A Feature-Based-to-Structure Pipeline for Computational Peptide Design**
 
----
-
-## Overview
-
-**S3-Dock** is an automated computational pipeline that bridges **1D peptide feature optimization**, **3D structure prediction**, and **4D molecular dynamics simulations** into a unified, reproducible workflow.
-
-Rather than designing peptides solely from sequence or solely from structural information, S3-Dock follows a **feature-based-to-structure philosophy**, where candidate peptides are first engineered to satisfy desired physicochemical properties before undergoing increasingly rigorous structural and thermodynamic validation.
-
-The pipeline integrates modern AI-based structure prediction with classical molecular modeling and molecular dynamics to provide a systematic framework for evaluating peptide binders.
+![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
+![Platform](https://img.shields.io/badge/Platform-Linux-lightgrey.svg)
+![CUDA](https://img.shields.io/badge/CUDA-12.x-success.svg)
+![License](https://img.shields.io/badge/License-MIT-green.svg)
 
 ---
 
-# ⚠️ Scope & Original Use Case
+# Overview
 
-S3-Dock was **originally developed to design peptide inhibitors targeting the α-synuclein rod polymorph fibril**.
+**S3-Dock** is a modular computational workflow for **feature-guided peptide design and structural evaluation**.
 
-The software was designed around a **feature-based-to-structure pipeline**, where peptide sequences are generated from target biophysical features (e.g., hydrophobicity, charge, and amphipathicity) and subsequently evaluated through structural prediction, docking, molecular dynamics, and free-energy analysis.
+The pipeline was originally developed to investigate peptide inhibitors targeting the **α-synuclein rod polymorph fibril**, with the goal of integrating sequence optimization, AI-based structural prediction, structural filtering, molecular docking, molecular dynamics simulations, and trajectory-based analysis into a single reproducible workflow.
 
-Although the pipeline is highly modular and can be adapted to other peptide–protein interaction problems, **its default assumptions, scoring metrics, and validation strategy were developed and tuned for amyloid fibril inhibitor design**.
+Unlike many workflows that begin by generating structures directly, S3-Dock follows a **feature-based-to-structure** design philosophy. Candidate peptides are first generated to satisfy user-defined physicochemical objectives before undergoing progressively more computationally intensive structural evaluation.
 
-Accordingly, users intending to apply S3-Dock to other biological systems should carefully validate target-specific parameters, structural filters, and scoring thresholds before interpreting results.
+S3-Dock should be viewed as a research workflow for computational hypothesis generation. It does **not** introduce new prediction models, nor is it intended to replace existing protein design software. Instead, it provides a configurable framework for combining several established computational tools into a single automated pipeline.
 
-S3-Dock should therefore be viewed as a **generalizable computational framework**, rather than a universally validated peptide discovery platform.
+---
+
+# Scope & Intended Use
+
+> **Please read this section before using S3-Dock.**
+
+S3-Dock was **originally developed to support computational studies of peptide inhibitors targeting the α-synuclein rod polymorph fibril**.
+
+The default workflow, configuration examples, filtering criteria, and scoring strategy were developed with this application in mind.
+
+Although the pipeline is modular and individual stages may be adapted to other peptide–protein interaction problems, **its default parameters should not be assumed to generalize to unrelated biological systems without additional validation.**
+
+S3-Dock is therefore best viewed as an **alternative workflow** for situations where users wish to begin from predefined biophysical characteristics—such as charge, hydrophobic moment, or amphipathicity—and subsequently evaluate those candidates through progressively more detailed structural analyses.
+
+Users intending to study different targets are encouraged to modify the configuration files, filtering thresholds, and validation strategy to match the biological system under investigation.
 
 ---
 
 # Design Philosophy
 
-S3-Dock follows a sequential validation strategy:
+Many modern peptide design workflows begin with structural generation or end-to-end AI models.
+
+S3-Dock instead adopts a **feature-first** strategy.
+
+Rather than attempting to directly generate binders, the workflow first constructs peptide sequences that satisfy predefined physicochemical objectives before evaluating those sequences through multiple independent structural and thermodynamic analyses.
+
+This staged approach allows inexpensive computational filters to remove poor candidates before more computationally demanding simulations are performed.
+
+The pipeline emphasizes:
+
+- Modular workflow design
+- Configuration-driven execution
+- Reproducibility
+- Checkpoint-based recovery
+- Compatibility with established structural biology software
+
+---
+
+# Workflow Overview
 
 ```
-Feature Optimization
-        ↓
-Sequence Generation
-        ↓
-AI Structure Prediction
-        ↓
+Input Configuration
+        │
+        ▼
+Feature-Based Sequence Optimization
+        │
+        ▼
+Sequence Library
+        │
+        ▼
+Boltz-2 Structure Prediction
+        │
+        ▼
 Structural Filtering
-        ↓
-Docking Validation
-        ↓
-Molecular Dynamics
-        ↓
-Free Energy Analysis
-        ↓
-Candidate Ranking
+        │
+        ▼
+(Optional)
+HADDOCK3 Docking
+        │
+        ▼
+OpenMM Molecular Dynamics
+        │
+        ▼
+MM-GBSA Analysis
+        │
+        ▼
+Result Aggregation
 ```
-
-Rather than relying on a single predictive model, each stage attempts to remove poor candidates before more computationally expensive simulations are performed.
 
 ---
 
 # Pipeline Architecture
 
-The pipeline is divided into six major computational stages.
+S3-Dock is organized into six primary computational stages.
 
 ---
 
-# Phase 1 — Sequence Generation Engine
+# Phase 1 — Feature-Based Sequence Generation
 
-Novel peptide sequences are generated using a **Simulated Annealing Monte Carlo optimizer**.
+Novel peptide sequences are generated using a **Simulated Annealing Monte Carlo** optimization strategy.
 
-Each candidate is evaluated against user-defined physicochemical objectives using the `peptides` Python package.
+Instead of directly optimizing structural predictions, candidate sequences are evaluated against predefined physicochemical objectives using the `peptides` Python package.
 
-### Optimization targets include
+Typical optimization targets include:
 
 - Net Charge
 - Boman Index
@@ -79,155 +111,137 @@ Each candidate is evaluated against user-defined physicochemical objectives usin
   - α-Helix
   - β-Sheet
 
-Known benchmark peptides (such as experimentally characterized control sequences) may optionally bypass optimization and proceed directly to structural prediction.
+Known benchmark or experimentally characterized sequences may optionally bypass this optimization stage and proceed directly to structural prediction.
 
 ---
 
-# Phase 2 — Structural Sampling & Screening
+# Phase 2 — Structure Prediction & Structural Filtering
 
 Candidate peptides are folded against the target receptor using **Boltz-2**.
 
-Each predicted complex undergoes several independent filtering stages.
+Each predicted complex then undergoes several independent filtering stages before advancing further into the workflow.
 
 ## Structural Confidence
 
-Removes low-confidence AI predictions using:
+Low-confidence predictions may be removed using metrics such as:
 
 - ipTM
 - pTM
-- confidence metrics
+- model confidence estimates
 
-## Pocket Validation
+---
 
-Verifies that the peptide binds within the intended target interface rather than an arbitrary surface.
+## Interface Validation
 
-## Quaternary Structure Validation
+Predicted complexes are evaluated to determine whether peptide binding occurs at the intended interface rather than an unrelated surface.
 
-Uses structural alignment to ensure that peptide binding does not significantly distort the receptor.
+---
+
+## Structural Integrity
+
+US-align is used to evaluate whether peptide binding substantially perturbs the native receptor structure.
 
 Typical metrics include:
 
 - TM-score
 - RMSD
 
-## Thermodynamic Filtering
+---
 
-Interface energetics are estimated using **PyRosetta InterfaceAnalyzerMover** to approximate binding quality.
+## Interface Energetics
 
-Top-performing candidates may optionally enter an exhaustive re-sampling workflow for additional structural exploration.
+PyRosetta's **InterfaceAnalyzerMover** may be used to estimate interface energetics as an additional filtering criterion.
+
+Depending on the workflow configuration, promising candidates may optionally undergo additional structural sampling.
 
 ---
 
-# Phase 3 — Blind Docking (Optional)
+# Phase 3 — Optional Docking Validation
 
-This stage provides an independent validation of AI-predicted complexes.
+This stage provides an independent assessment of predicted complexes.
 
-Docking is performed using **HADDOCK3**, followed by scoring using:
+Docking is performed using **HADDOCK3**.
+
+Docked complexes may subsequently be evaluated using:
 
 - PRODIGY
-- Binding affinity estimates
-- Dissociation constant estimation
+- Predicted binding affinity
+- Estimated dissociation constant
 
-This stage can be disabled when Boltz-2 multimer predictions are considered sufficiently reliable for downstream simulations.
+Because Boltz-2 already predicts multimeric complexes, this stage is optional and may be disabled through the configuration file.
 
 ---
 
-# Phase 4 — Molecular Dynamics
+# Phase 4 — Molecular Dynamics Simulation
 
-Production molecular dynamics simulations are performed using **OpenMM** with CUDA acceleration.
+Selected peptide–protein complexes are simulated using **OpenMM** with CUDA acceleration.
 
-Typical simulation workflow includes:
+Typical simulation workflow:
 
 - Explicit TIP3P solvent
 - AMBER14 force field
 - Energy minimization
 - Equilibration
-- Production trajectory
+- Production molecular dynamics
 
-The workflow includes:
-
-- automatic checkpointing
-- resume functionality
-- GPU memory protection
-- fault recovery
-
-allowing interrupted simulations to continue without restarting.
+Checkpoint files are generated during execution, allowing interrupted simulations to resume without restarting.
 
 ---
 
-# Phase 5 — MM-GBSA Thermodynamics
+# Phase 5 — MM-GBSA Analysis
 
 Following production simulations, explicit solvent is removed and trajectories are re-evaluated using an implicit solvent model.
 
-Energy analysis includes:
+Typical analyses include:
 
-- MM-GBSA
-- Running ΔG estimation
+- MM-GBSA energy estimation
 - Frame averaging
 - Trajectory slicing
+- Running ΔG estimation
 
-This stage provides an approximate estimate of peptide binding energetics over the course of the simulation.
+These values provide approximate energetic descriptors and should be interpreted accordingly.
 
 ---
 
-# Phase 6 — Automated Discovery Compiler
+# Phase 6 — Result Aggregation
 
-The final stage aggregates results from every previous phase into a unified report.
+Outputs generated throughout the workflow are combined into a single summary directory.
 
-Outputs include:
+Typical outputs include:
 
-- sequence descriptors
-- structural metrics
-- docking statistics
-- molecular dynamics analyses
-- thermodynamic estimates
+- Sequence descriptors
+- Structural metrics
+- Docking statistics
+- Molecular dynamics analyses
+- MM-GBSA estimates
 
-Publication-ready visualizations are automatically generated, including:
+Several analysis figures are also generated automatically, including:
 
 - Backbone RMSD
 - Hydrogen Bond Profiles
 - Residue Contact Maps
-- Binding Hotspots
+- Binding Hotspot Histograms
 - Interface Interaction Networks
 
-Cleaned topology and trajectory files are exported for direct visualization in ChimeraX.
+Trajectory files compatible with ChimeraX are exported for visualization.
 
 ---
 
 # Hardware Requirements
 
-S3-Dock was developed on Linux workstations equipped with NVIDIA GPUs.
+S3-Dock was developed and tested on Linux systems equipped with NVIDIA GPUs.
 
-Recommended specifications include:
+Recommended environment:
 
 | Component | Recommendation |
 |------------|---------------|
 | Operating System | Ubuntu 22.04+ |
-| GPU | NVIDIA CUDA-capable GPU |
-| CUDA Toolkit | 12.x |
 | Python | 3.10+ |
-| Conda | Miniconda / Anaconda |
+| CUDA Toolkit | 12.x |
+| GPU | CUDA-capable NVIDIA GPU |
+| Package Manager | Miniconda / Anaconda |
 
-Because several software packages require conflicting dependencies, S3-Dock utilizes **multiple isolated Conda environments**.
-
----
-
-# Repository Structure
-
-```text
-S3-Dock/
-│
-├── configs/
-├── inputs/
-├── scripts/
-├── workflows/
-├── environments/
-├── results/
-├── docs/
-├── utilities/
-├── run_pipeline.sh
-└── README.md
-```
+Because multiple third-party packages have incompatible dependencies, S3-Dock uses isolated Conda environments.
 
 ---
 
@@ -237,43 +251,42 @@ Clone the repository:
 
 ```bash
 git clone https://github.com/neelviswanathan08/S3-Dock.git
+
 cd S3-Dock
 ```
 
 ---
 
-## Environment Setup
+# Conda Environments
 
-Independent Conda environments are recommended.
+The workflow assumes separate environments for different software packages.
 
-Example environments include:
+Example environments:
 
-```text
-boltz_env
+```
+envs/
+
+├── boltz_env
+├── openmm_env
+└── haddock_env
 ```
 
-Contains:
+Example packages include:
+
+### boltz_env
 
 - Boltz-2
 - PyTorch
 - PyRosetta
 - BioPython
 
-```text
-openmm_env
-```
-
-Contains:
+### openmm_env
 
 - OpenMM
 - MDTraj
 - PDBFixer
 
-```text
-haddock_env
-```
-
-Contains:
+### haddock_env
 
 - HADDOCK3
 
@@ -281,12 +294,12 @@ Contains:
 
 # Configuration
 
-The pipeline is controlled through a single YAML configuration file.
+Pipeline behavior is controlled through a YAML configuration file.
 
 Example:
 
 ```yaml
-run_folder_name: "Ultra_aSyn_candidate"
+run_folder_name: Ultra_aSyn_candidate
 
 peptide_length: 22
 
@@ -311,9 +324,11 @@ mmpbsa_end_frame: 5000
 mmpbsa_interval: 1
 ```
 
+Because all major settings are configuration driven, multiple independent targets may be processed without modifying the source code.
+
 ---
 
-# Running S3-Dock
+# Running the Pipeline
 
 Single run:
 
@@ -321,7 +336,7 @@ Single run:
 ./run_pipeline.sh config_targetA.yaml
 ```
 
-Multiple concurrent targets:
+Multiple concurrent runs:
 
 ```bash
 ./run_pipeline.sh config_targetA.yaml &
@@ -329,21 +344,23 @@ Multiple concurrent targets:
 ./run_pipeline.sh config_targetB.yaml &
 ```
 
-Completed stages are automatically detected, allowing interrupted runs to resume without repeating finished computations.
+Completed workflow stages are automatically detected, allowing interrupted runs to resume without repeating completed computations.
 
 ---
 
 # Output Directory
 
-All results are written to
+Results are organized by run name.
 
-```text
-results/<run_folder_name>/
+```
+results/
+
+└── <run_folder_name>/
 ```
 
-The final summary directory contains:
+Typical outputs include:
 
-```text
+```
 pipeline_summary_report.csv
 
 binding_hotspots.png
@@ -357,77 +374,49 @@ trajectory.dcd
 topology.pdb
 ```
 
-Additional intermediate outputs from each computational phase are preserved to facilitate reproducibility and downstream analysis.
+Intermediate files generated throughout the workflow are retained to facilitate reproducibility and downstream analysis.
 
 ---
 
-# Workflow Summary
+# Repository Philosophy
 
-```text
-Input Configuration
-        │
-        ▼
-Sequence Optimization
-        │
-        ▼
-Sequence Library
-        │
-        ▼
-Boltz-2 Structure Prediction
-        │
-        ▼
-Structural Filtering
-        │
-        ▼
-(Optional)
-HADDOCK3 Docking
-        │
-        ▼
-OpenMM Molecular Dynamics
-        │
-        ▼
-MM-GBSA Free Energy Analysis
-        │
-        ▼
-Automated Candidate Ranking
-        │
-        ▼
-Publication-Ready Outputs
-```
+S3-Dock intentionally integrates existing computational methods rather than replacing them.
+
+The pipeline emphasizes reproducibility and automation by combining established structural biology software into a configurable workflow.
+
+Users are encouraged to adapt individual stages to their own systems, modify filtering criteria where appropriate, and independently validate any computational predictions.
 
 ---
 
 # Current Limitations
 
-S3-Dock is an active research pipeline.
+S3-Dock is an active research workflow.
 
 Current limitations include:
 
-- The default workflow was optimized for peptide inhibitor design rather than general small-molecule docking.
-- Validation has primarily focused on α-synuclein fibril interfaces.
-- MM-GBSA provides approximate free-energy estimates and should not be interpreted as rigorous binding free energies.
-- Predicted structures remain dependent on the underlying AI structure prediction models.
-- Biological activity ultimately requires experimental validation.
+- The default workflow was developed for peptide inhibitor design against the α-synuclein rod polymorph fibril.
+- Performance on unrelated targets has not been comprehensively evaluated.
+- MM-GBSA provides approximate energetic estimates rather than rigorous binding free energies.
+- Structural predictions remain dependent on the assumptions and limitations of the underlying prediction software.
+- Computational predictions should be interpreted as hypotheses requiring experimental validation.
 
 ---
 
 # Reproducibility
 
-S3-Dock emphasizes reproducible computational experiments by:
+The workflow emphasizes reproducible computational experiments through:
 
-- using configuration-driven workflows
-- avoiding hard-coded paths
-- preserving intermediate outputs
-- supporting resumable execution
-- maintaining isolated software environments
+- Configuration-driven execution
+- Isolated software environments
+- Checkpoint-based recovery
+- Preservation of intermediate outputs
+- Modular pipeline stages
 
 ---
 
 # Citation
 
-If S3-Dock contributes to published research, please cite this repository along with the underlying software packages used throughout the pipeline (e.g., Boltz-2, HADDOCK3, OpenMM, PyRosetta, MDTraj, and associated dependencies).
-
-A formal manuscript describing S3-Dock is currently in preparation.
+If S3-Dock contributes to published work, please cite this repository together with the original publications describing the external software used throughout the workflow, including Boltz-2, HADDOCK3, OpenMM, PyRosetta, MDTraj, and other dependencies.
 
 ---
 
@@ -439,11 +428,11 @@ This project is distributed under the MIT License.
 
 # Acknowledgements
 
-S3-Dock builds upon numerous open-source scientific software projects, including:
+S3-Dock builds upon numerous open-source software projects developed by the structural biology and computational chemistry communities, including:
 
 - Boltz-2
-- OpenMM
 - HADDOCK3
+- OpenMM
 - PyRosetta
 - MDTraj
 - BioPython
@@ -451,12 +440,12 @@ S3-Dock builds upon numerous open-source scientific software projects, including
 - PDBFixer
 - ChimeraX
 
-The authors gratefully acknowledge the developers and maintainers of these projects, whose work made this pipeline possible.
+The authors gratefully acknowledge the developers and maintainers of these projects.
 
 ---
 
-## Disclaimer
+# Disclaimer
 
-S3-Dock is intended as a **research software package** for computational peptide design and structural evaluation.
+S3-Dock is intended for **research purposes only**.
 
-Predictions generated by this software are computational hypotheses and **should not be interpreted as experimental validation or evidence of biological efficacy**. All candidate molecules should undergo appropriate experimental characterization before any biological conclusions are drawn.
+The workflow generates computational predictions intended to support hypothesis generation and exploratory computational studies. Outputs should not be interpreted as evidence of biological activity or therapeutic efficacy without appropriate experimental validation.
