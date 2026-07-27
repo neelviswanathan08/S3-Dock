@@ -222,9 +222,17 @@ def compile_candidate(folder):
                         dg_std = float(row[5]) 
         
         # 5. Data Alignment & Biophysical Native Calculations
-        p2_data = phase2_metrics.get(folder, ["N/A"] * 12)
-        if len(p2_data) < 12:
-            p2_data = [folder] + list(p2_data[1:]) + ["N/A"] * (12 - len(p2_data))
+        # SMART MATCHER: Strips "_DEEP" or "_M" to find the original Seed_ID in the Phase 2 CSV
+        base_seed = folder.replace("_DEEP", "").split("_M")[0]
+        
+        p2_data = None
+        for row in phase2_metrics.values():
+            if len(row) > 1 and row[1] == base_seed:
+                p2_data = row
+                break
+                
+        if not p2_data:
+            p2_data = [folder] + ["N/A"] * 11
             
         seq = p2_data[2]
         if seq == "N/A" or not seq:

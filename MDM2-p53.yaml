@@ -1,0 +1,98 @@
+# =====================================================================
+# S3-DOCK: MASTER CONFIGURATION FILE
+# =====================================================================
+
+# --- 1. FACTORY RUN SETTINGS ---
+run_folder_name: "Ultra_MDM2_CANDIDATE"
+num_seeds:  500
+top_k: 3   # Default to 1000 tracks (Ignored if benchmark_mode is true)
+samples_per_seed: 5           # 1 structural prediction per fasta seed entry
+max_discovery_loops: 5
+deep_dive_samples: 25
+
+# --- 2. PEPTIDE DESIGN CONSTRAINTS ---
+peptide_length: 12
+
+# Structural Control ("helix" or "beta_sheet")
+secondary_structure: "helix"  
+
+# Chemical Property ("amphipathic", "hydrophobic", "hydrophilic")
+peptide_property: "amphipathic"
+
+# Override (Leave blank "" to let the pipeline build the H/P pattern automatically)
+custom_pattern: ""
+
+# 🔬 BENCHMARK GATEKEEPER MATRIX
+# Set benchmark_mode to true to duplicate the sequence across 1000 slots and select the top 1
+benchmark_mode: false                        
+benchmark_sequence: "TSFAEYWNLLSP"  # PSM-alpha-3 Control Sequence
+benchmark_samples: 150                    # Total fasta seeds to write into library.fasta
+
+# Strict Biochemical Filtering Targets (Used if benchmark_mode is false)
+target_net_charge: -1    # Target electrical charge at pH 7.4
+boman_index_min: 0.5         # Minimum binding potential/solubility
+hydrophobic_moment_target: 0.4
+
+# --- 2b. EVOLUTIONARY OPTIMIZER (MONTE CARLO) SETTINGS ---
+rng_seed: 7237     # Master RNG seed for deep learning and optimizer reproducibility
+charge_tolerance: 0.5        
+charge_weight: 10            
+boman_weight: 5              
+moment_weight: 5             
+max_mutations: 50000         
+plateau_patience: 800        
+initial_temp: 1.5            
+cooling_rate: 0.9995         
+dedupe_output: True          
+
+# --- 3. DYNAMIC RECEPTOR TARGET SETTINGS ---
+target_cif: "inputs/MDM2.cif"
+binder_chain_id: "B"
+is_fibril: false
+
+target_chains_and_sequences:
+  A: "ETLVRPKPLLLKLLKSVGAQKDTYTMKEVLFYLGQYIMTKRLYDEKQQHIVYCSNDLLGDLFGVPSFSVKEHRKIYTMIYRNLVV"
+
+# --- 4. UNIVERSAL STRUCTURAL POCKET CONSTRAINTS ---
+max_distance_threshold: 5.0
+pocket_contacts:
+  - ["A", 29]
+  - ["A", 32]
+  - ["A", 36]
+  - ["A", 37]
+  - ["A", 42]
+  - ["A", 47]
+  - ["A", 50]
+  - ["A", 61]
+  - ["A", 66]
+  - ["A", 68]
+  - ["A", 69]
+  - ["A", 71]
+  - ["A", 74]
+  - ["A", 75]
+
+# --- 5. QUALITY CONTROL GATEKEEPERS ---
+enforce_boltz_constraints: true 
+require_pocket_filter: true
+min_pocket_contacts: 4  
+max_distance_threshold: 8
+use_msa_filter: true
+tm_threshold: 0.85
+
+
+# --- 6. HADDOCK3 BLIND GLOBAL DOCKING SETTINGS ---
+rnd_haddock_seed: 100
+run_haddock: false               
+haddock_sampling: 1000             
+haddock_seletop: 100                
+haddock_top_clusters: 10            
+# --- 7. OPENMM MOLECULAR DYNAMICS SETTINGS ---
+md_simulation_steps: 50000000       # Production-scale trajectory length
+md_reporting_interval: 10000         # Yields exactly 5,000 saved trajectory frames
+md_temperature_kelvin: 310.15       
+
+# --- 8. MMPBSA ENERGY CALCULATION SETTINGS --c-
+mmpbsa_start_frame: 2500             # Excludes first 50% relaxation/burn-in window
+mmpbsa_end_frame: 5000         # Terminal frame boundaries
+mmpbsa_interval: 1                 # Samples exactly 250 production frames
+mmpbsa_salt_concentration: 0.150

@@ -3,10 +3,10 @@
 # =====================================================================
 
 # --- 1. FACTORY RUN SETTINGS ---
-run_folder_name: "PSMAlpha3"
-num_seeds:  200
+run_folder_name: "Ultra_aSyn_candidate"
+num_seeds:  500
 top_k: 3           # Default to 1000 tracks (Ignored if benchmark_mode is true)
-samples_per_seed: 10           # 1 structural prediction per fasta seed entry
+samples_per_seed: 5           # 1 structural prediction per fasta seed entry
 max_discovery_loops: 5
 deep_dive_samples: 25
 
@@ -22,16 +22,16 @@ peptide_property: "amphipathic"
 # Override (Leave blank "" to let the pipeline build the H/P pattern automatically)
 custom_pattern: ""
 
-# BENCHMARK GATEKEEPER MATRIX
+# 🔬 BENCHMARK GATEKEEPER MATRIX
 # Set benchmark_mode to true to duplicate the sequence across 1000 slots and select the top 1
-benchmark_mode: true                        
+benchmark_mode: false                        
 benchmark_sequence: "MEFVAKLFKFFKDLLGKFLGNN"  # PSM-alpha-3 Control Sequence
 benchmark_samples: 10                    # Total fasta seeds to write into library.fasta
 
 # Strict Biochemical Filtering Targets (Used if benchmark_mode is false)
-target_net_charge: 2.2    # Target electrical charge at pH 7.4
-boman_index_min: 1.5         # Minimum binding potential/solubility
-hydrophobic_moment_target: 0.75
+target_net_charge: 1.993    # Target electrical charge at pH 7.4
+boman_index_min: 0.289         # Minimum binding potential/solubility
+hydrophobic_moment_target: 0.678
 
 # --- 2b. EVOLUTIONARY OPTIMIZER (MONTE CARLO) SETTINGS ---
 rng_seed: 120000     # Master RNG seed for deep learning and optimizer reproducibility
@@ -90,8 +90,9 @@ enforce_boltz_constraints: true
 require_pocket_filter: true
 min_pocket_contacts: 4  
 max_distance_threshold: 8
-tm_threshold: 0.85
 use_msa_filter: true
+tm_threshold: 0.85
+
 
 # --- 6. HADDOCK3 BLIND GLOBAL DOCKING SETTINGS ---
 run_haddock: false                  # Set to true to run HADDOCK, false to skip to OpenMM
@@ -107,11 +108,8 @@ md_reporting_interval: 10000         # Yields exactly 5,000 saved trajectory fra
 md_temperature_kelvin: 310.15
 md_NaCl_concentration: 0.150       
 
-# Universal Energy Parameters
-energy_start_frame: 2500             
-energy_end_frame: 5000               
-energy_interval: 10                  
-energy_salt_concentration: 0.150
-
-# --- 9. MM-GBSA ENERGY CALCULATION SETTINGS ---
-energy_reporting_interval: 2.5       # Evaluates exactly 100 evenly distributed coordinates
+# --- 8. MMPBSA ENERGY CALCULATION SETTINGS ---
+mmpbsa_start_frame: 2500             # Excludes first 50% relaxation/burn-in window
+mmpbsa_end_frame: 5000         # Terminal frame boundaries
+mmpbsa_interval: 1                  # Samples exactly 250 production frames
+mmpbsa_salt_concentration: 0.150

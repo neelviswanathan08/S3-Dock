@@ -2,12 +2,12 @@ import sys
 import os
 import yaml
 import csv
+import argparse
 import numpy as np
 import mdtraj as md
 import openmm as mm
 import openmm.app as app
 import openmm.unit as unit
-import argparse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # ⚡ Force immediate terminal output
@@ -77,7 +77,7 @@ def process_mmgbsa(folder):
         default_start = total_frames // 2
         start_frame = config.get('mmpbsa_start_frame', default_start)
         end_frame = config.get('mmpbsa_end_frame', -1)
-        frame_interval = config.get('mmpbsa_interval', 1)
+        frame_interval = config.get('mmpbsa_interval', 10)
         
         if end_frame == -1 or end_frame > total_frames:
             end_frame = total_frames
@@ -129,9 +129,10 @@ def process_mmgbsa(folder):
             dg = e_comp - (e_rec + e_lig)
             energies.append(dg)
             
-            # 👇 REAL-TIME SPEEDOMETER INJECTED HERE 👇
+            # 👇 REAL-TIME SPEEDOMETER (Shows actual absolute frame index mapped to your run)
+            absolute_frame_idx = start_frame + (i * frame_interval)
             if (i + 1) % 10 == 0 or i == 0:
-                print(f"   ▶ [{folder}] Frame {i+1:03d}/{traj.n_frames} | Running Avg: {np.mean(energies):.2f} kcal/mol", flush=True)
+                print(f"   ▶ [{folder}] Abs Frame {absolute_frame_idx:04d}/{total_frames} (Step {i+1}/{traj.n_frames}) | Running Avg: {np.mean(energies):.2f} kcal/mol", flush=True)
                     
         dg_final = np.mean(energies)
         dg_std = np.std(energies)
