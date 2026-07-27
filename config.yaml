@@ -3,15 +3,15 @@
 # =====================================================================
 
 # --- 1. FACTORY RUN SETTINGS ---
-run_folder_name: "Ultra_aSyn_candidate"
-num_seeds:  500
-top_k: 3           # Default to 1000 tracks (Ignored if benchmark_mode is true)
-samples_per_seed: 5           # 1 structural prediction per fasta seed entry
-max_discovery_loops: 5
-deep_dive_samples: 25
+run_folder_name: "your_yaml_path"
+num_seeds:  500 # Number of Seeds (Sequences Generated)
+top_k: 3           # Number of Top candidates through pipeline
+samples_per_seed: 5          # Number of Boltz seeds per sequence
+max_discovery_loops: 5 
+deep_dive_samples: 25 # Followinmg first pass, # of seeds for top_k candidates
 
 # --- 2. PEPTIDE DESIGN CONSTRAINTS ---
-peptide_length: 22
+peptide_length: 22 
 
 # Structural Control ("helix" or "beta_sheet")
 secondary_structure: "helix"  
@@ -31,7 +31,7 @@ benchmark_samples: 10                    # Total fasta seeds to write into libra
 # Strict Biochemical Filtering Targets (Used if benchmark_mode is false)
 target_net_charge: 1.993    # Target electrical charge at pH 7.4
 boman_index_min: 0.289         # Minimum binding potential/solubility
-hydrophobic_moment_target: 0.678
+hydrophobic_moment_target: 0.678 # Targeted Hydrophobic Moment
 
 # --- 2b. EVOLUTIONARY OPTIMIZER (MONTE CARLO) SETTINGS ---
 rng_seed: 120000     # Master RNG seed for deep learning and optimizer reproducibility
@@ -46,11 +46,10 @@ cooling_rate: 0.9995
 dedupe_output: True          
 
 # --- 3. DYNAMIC RECEPTOR TARGET SETTINGS ---
-target_cif: "inputs/aSyn_fibril.cif"
-binder_chain_id: "K"
-is_fibril: false
+target_cif: "your_target_protein_cif_path"
+binder_chain_id: "chain_letter" 
 
-target_chains_and_sequences:
+target_chains_and_sequences: # Sequence chains for target protein
   A: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
   B: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
   C: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
@@ -63,7 +62,7 @@ target_chains_and_sequences:
   J: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
 
 # --- 4. UNIVERSAL STRUCTURAL POCKET CONSTRAINTS ---
-pocket_contacts:
+pocket_contacts: # Target Residues
   - ["I", 10]
   - ["I", 11]
   - ["I", 12]
