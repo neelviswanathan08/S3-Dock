@@ -79,6 +79,13 @@ EISENBERG_SCALE = {
     'S': -0.18, 'T': -0.05, 'W': 0.81, 'Y': 0.26, 'V': 1.08
 }
 
+THREE_TO_ONE = {
+    'ALA': 'A', 'ARG': 'R', 'ASN': 'N', 'ASP': 'D', 'CYS': 'C',
+    'GLN': 'Q', 'GLU': 'E', 'GLY': 'G', 'HIS': 'H', 'ILE': 'I',
+    'LEU': 'L', 'LYS': 'K', 'MET': 'M', 'PHE': 'F', 'PRO': 'P',
+    'SER': 'S', 'THR': 'T', 'TRP': 'W', 'TYR': 'Y', 'VAL': 'V'
+}
+
 def calculate_residue_counts(sequence):
     counts = {"pos": 0, "neg": 0, "polar": 0, "arom": 0, "hydro": 0}
     for aa in sequence:
@@ -101,7 +108,6 @@ def calculate_hydrophobic_moment(sequence, angle=100):
     return math.sqrt(sum_sin ** 2 + sum_cos ** 2) / n
 
 def calculate_native_charge(sequence, pH=7.4):
-    """Native Python replacement for Biopython's ProteinAnalysis.charge_at_pH()"""
     if not sequence: return 0.0
     pKa_pos = {'K': 10.53, 'R': 12.48, 'H': 6.00, 'N_term': 9.69}
     pKa_neg = {'D': 3.65, 'E': 4.25, 'C': 8.18, 'Y': 10.07, 'C_term': 2.34}
@@ -120,7 +126,7 @@ def calculate_native_charge(sequence, pH=7.4):
     return charge
 
 # -------------------------------------------------------------------
-# INGEST PHASE 2 MASTER METRICS
+# INGEST PHASE 2 MASTER METRICS (OR HANDLE BENCHMARK OVERRIDE)
 # -------------------------------------------------------------------
 phase2_metrics = {}
 master_csv_phase2 = os.path.join(final_dir, f"caps_2_{run_name}_master_metrics.csv")
@@ -135,7 +141,7 @@ if os.path.exists(master_csv_phase2):
                     model_id = row[0]
                     phase2_metrics[model_id] = row
 else:
-    print(f"⚠️ WARNING: Phase 2 Metrics File not discovered at {master_csv_phase2}.", flush=True)
+    print(f"⚠️ [INFO] Phase 2 Metrics File not discovered at {master_csv_phase2} (Benchmark / Crystal Override Mode Active).", flush=True)
 
 # -------------------------------------------------------------------
 # CONCURRENT WORKER FUNCTION
@@ -155,16 +161,19 @@ def compile_candidate(folder):
         raw_traj = md.load(nc_path, top=pdb_template_path)
         total_frames = raw_traj.n_frames
         
-        start_frame = config.get('energy_start_frame', total_frames // 2)
-        end_frame = config.get('energy_end_frame', total_frames)
-        frame_interval = config.get('energy_interval', 1)
+        # 👇 DYNAMIC CONFIG WINDOWING CONTROLS 👇
+        start_frame = config.get('analysis_start_frame', config.get('energy_start_frame', 0))
+        end_frame = config.get('analysis_end_frame', config.get('energy_end_frame', -1))
+        frame_interval = config.get('analysis_stride', config.get('energy_interval', 1))
         
-        if start_frame >= total_frames: start_frame = 0
-        if end_frame == -1 or end_frame > total_frames or end_frame <= start_frame: end_frame = total_frames
-        
+        if start_frame >= total_frames: 
+            start_frame = 0
+        if end_frame == -1 or end_frame > total_frames or end_frame <= start_frame: 
+            end_frame = total_frames
+            
         traj = raw_traj[start_frame:end_frame:frame_interval]
+        # 👆 END DYNAMIC WINDOWING CONTROLS 👆
         
-        # 👇 NEW VISUAL EXPORT PIPELINE 👇
         # 1. Image molecules to prevent periodic boundary teleports
         traj.image_molecules(inplace=True)
         
@@ -184,7 +193,6 @@ def compile_candidate(folder):
             traj_dry[0].save_pdb(fixed_pdb_path)
         if not os.path.exists(fixed_dcd_path):
             traj_dry.save_dcd(fixed_dcd_path)
-        # 👆 END VISUAL EXPORT PIPELINE 👆
 
         ligand_chain_index = traj_dry.topology.n_chains - 1
         rec_idx = traj_dry.topology.select(f'not chainid {ligand_chain_index}')
@@ -210,19 +218,40 @@ def compile_candidate(folder):
         bsa_values = (sasa_rec + sasa_lig - sasa_comp) * 100.0 
         mean_bsa = np.mean(bsa_values)
         
-        # 4. Phase 5 Thermodynamics
+        # 4. Phase 5 Thermodynamics (DYNAMIC WINDOW CALCULATION)
         dg_final, dg_std = 0.0, 0.0
+        window_energies = []
+        window_frames = []
         if os.path.exists(mmpbsa_csv):
             with open(mmpbsa_csv, 'r') as f:
-                reader = csv.reader(f)
-                next(reader) 
-                for row in reader:
-                    if len(row) >= 6:
-                        dg_final = float(row[4])
-                        dg_std = float(row[5]) 
+                lines = f.readlines()
+            
+            start_idx = -1
+            for i, line in enumerate(lines):
+                if "Absolute_Frame_Index" in line:
+                    start_idx = i + 1
+                    break
+            
+            if start_idx != -1:
+                for line in lines[start_idx:]:
+                    if not line.strip(): continue
+                    parts = line.split(',')
+                    if len(parts) >= 2:
+                        try:
+                            frame_idx = int(float(parts[0]))
+                            energy = float(parts[1])
+                            
+                            if start_frame <= frame_idx < end_frame:
+                                window_energies.append(energy)
+                                window_frames.append(frame_idx)
+                        except ValueError:
+                            continue
+                
+                if window_energies:
+                    dg_final = np.mean(window_energies)
+                    dg_std = np.std(window_energies)
         
-        # 5. Data Alignment & Biophysical Native Calculations
-        # SMART MATCHER: Strips "_DEEP" or "_M" to find the original Seed_ID in the Phase 2 CSV
+        # 5. Data Alignment & Biophysical Native Calculations (Supports Crystal Controls or Phase 2)
         base_seed = folder.replace("_DEEP", "").split("_M")[0]
         
         p2_data = None
@@ -231,44 +260,74 @@ def compile_candidate(folder):
                 p2_data = row
                 break
                 
-        if not p2_data:
-            p2_data = [folder] + ["N/A"] * 11
+        if p2_data:
+            seq = p2_data[2]
+            if seq == "N/A" or not seq:
+                seq = ""
+            compiled_row = [
+                folder,                    
+                p2_data[1],                
+                p2_data[2],                
+                p2_data[3],                
+                p2_data[4],                
+                p2_data[7],                
+                p2_data[8],                
+                p2_data[10],               
+                p2_data[11],               
+                round(dg_final, 2) if dg_final != 0.0 else "N/A", 
+                round(dg_std, 2) if dg_std != 0.0 else "N/A",     
+                round(mean_rmsd, 2),      
+                round(mean_hbonds, 1),    
+                round(mean_bsa, 1),
+                round(calculate_native_charge(seq, 7.4), 2),     
+                calculate_residue_counts(seq)["pos"],            
+                calculate_residue_counts(seq)["neg"],            
+                calculate_residue_counts(seq)["polar"],          
+                calculate_residue_counts(seq)["arom"],           
+                calculate_residue_counts(seq)["hydro"],          
+                round(sum([HYDROPHOBICITY_SCALE.get(aa, 0.0) for aa in seq]) / len(seq), 2) if seq else 0.0,         
+                round(calculate_hydrophobic_moment(seq), 3)         
+            ]
+        else:
+            # --- DYNAMIC EXTRACTION FOR CRYSTAL OVERRIDES / BENCHMARKS W/O PHASE 2 ---
+            all_chains = list(traj_dry.topology.chains)
+            ligand_chain = all_chains[ligand_chain_index]
+            seq_chars = [THREE_TO_ONE.get(res.name, 'X') for res in ligand_chain.residues]
+            seq = "".join(seq_chars)
+            seq_len = len(seq)
             
-        seq = p2_data[2]
-        if seq == "N/A" or not seq:
-            seq = ""
-            
-        # Native math executions
-        counts = calculate_residue_counts(seq)
-        kd_scores = [HYDROPHOBICITY_SCALE.get(aa, 0.0) for aa in seq]
-        avg_kd = sum(kd_scores) / len(seq) if seq else 0.0
-        net_charge = calculate_native_charge(seq, 7.4)
-        hmoment = calculate_hydrophobic_moment(seq)
-            
-        compiled_row = [
-            folder,                   
-            p2_data[1],               
-            p2_data[2],               
-            p2_data[3],               
-            p2_data[4],               
-            p2_data[7],               
-            p2_data[8],               
-            p2_data[10],              
-            p2_data[11],              
-            round(dg_final, 2) if dg_final != 0.0 else "N/A", 
-            round(dg_std, 2) if dg_std != 0.0 else "N/A",     
-            round(mean_rmsd, 2),      
-            round(mean_hbonds, 1),    
-            round(mean_bsa, 1),
-            round(net_charge, 2),     
-            counts["pos"],            
-            counts["neg"],            
-            counts["polar"],          
-            counts["arom"],           
-            counts["hydro"],          
-            round(avg_kd, 2),         
-            round(hmoment, 3)         
-        ]
+            # Estimate molecular weight from sequence (~110 Da per amino acid average)
+            mw_kDa = round((seq_len * 110.0) / 1000.0, 3)
+            counts = calculate_residue_counts(seq)
+            kd_scores = [HYDROPHOBICITY_SCALE.get(aa, 0.0) for aa in seq]
+            avg_kd = sum(kd_scores) / len(seq) if seq else 0.0
+            net_charge = calculate_native_charge(seq, 7.4)
+            hmoment = calculate_hydrophobic_moment(seq)
+
+            compiled_row = [
+                folder,                    # Design_Target
+                folder,                    # Seed_ID
+                seq,                       # Binder_Sequence
+                seq_len,                   # Seq_Length
+                mw_kDa,                    # MW_kDa
+                "N/A",                     # Boltz_ipTM
+                "N/A",                     # Complex_TM_Score
+                "N/A",                     # Rosetta_dG_kcal_mol
+                "Empirical_Crystal",       # Phase_2_Status
+                round(dg_final, 2) if dg_final != 0.0 else "N/A", 
+                round(dg_std, 2) if dg_std != 0.0 else "N/A",     
+                round(mean_rmsd, 2),      
+                round(mean_hbonds, 1),    
+                round(mean_bsa, 1),
+                round(net_charge, 2),     
+                counts["pos"],            
+                counts["neg"],            
+                counts["polar"],          
+                counts["arom"],           
+                counts["hydro"],          
+                round(avg_kd, 2),         
+                round(hmoment, 3)         
+            ]
         
         # -------------------------------------------------------------------
         # GENERATE HIGH-RES FIGURES
@@ -304,7 +363,7 @@ def compile_candidate(folder):
                 plt.text(bar.get_x() + bar.get_width()/2., height + 1.0, f'{height:.1f}', ha='center', va='bottom', fontsize=9, color='black', fontweight='bold', rotation=90)
         
         plt.grid(axis='y', linestyle='--', alpha=0.7, zorder=0)
-        plt.title(f"Biochemical Binding Hotspots: ({folder})", fontsize=14, pad=15)
+        plt.title(f"Biochemical Binding Hotspots: ({folder}) [Frames {start_frame}–{end_frame}]", fontsize=14, pad=15)
         plt.xlabel("Peptide Residue", fontsize=12, fontweight='bold', labelpad=10)
         plt.ylabel(f"Average Atomic Contacts (< {CONTACT_CUTOFF} Å)", fontsize=12, fontweight='bold')
         plt.xticks(rotation=45, ha='right')
@@ -325,7 +384,7 @@ def compile_candidate(folder):
             for r in chain_obj.residues:
                 fibril_residues.append(r)
                 fib_res_labels.append(f"{r.name}{r.resSeq}_{c_id}")
-                         
+                     
         global_dist_matrix = np.zeros((len(k_residues), len(fibril_residues)))
         for y, res_k in enumerate(k_residues):
             atoms_k = [a.index for a in res_k.atoms]
@@ -370,16 +429,17 @@ def compile_candidate(folder):
         ax.set_xlim(-0.5, 1.5)
         ax.axis('off')
         plt.legend(handles=[hydrophobic_patch, hydrophilic_patch], loc='upper center', bbox_to_anchor=(0.5, 1.05), ncol=2)
-        plt.title(f"Biochemical Interaction Network: {folder}\n(Observed Contacts < {CONTACT_CUTOFF}Å)", pad=30, fontsize=14, fontweight='bold')
+        plt.title(f"Biochemical Interaction Network: {folder}\n(Focused Window: {start_frame}–{end_frame} | Contacts < {CONTACT_CUTOFF}Å)", pad=30, fontsize=14, fontweight='bold')
         plt.tight_layout()
         plt.savefig(os.path.join(summary_dir, f"{folder}_interaction_network.png"), dpi=300)
         plt.close()
 
-        # C. Time-Series Stability Dashboard
-        time_axis = np.arange(len(rmsd_values)) * frame_interval
+        # C. Time-Series Stability Dashboard (Mapped to Absolute Frames)
+        time_axis = np.arange(start_frame, start_frame + (len(rmsd_values) * frame_interval), frame_interval)
+        
         fig, ax1 = plt.subplots(figsize=(10, 5))
         color = 'tab:gray'
-        ax1.set_xlabel('Sampled Simulation Frame Index', fontsize=10)
+        ax1.set_xlabel(f'Absolute Simulation Frame Index (Window: {start_frame}–{end_frame})', fontsize=10, fontweight='bold')
         ax1.set_ylabel('Backbone RMSD (Å)', color=color, fontsize=10)
         ax1.plot(time_axis, rmsd_values, color=color, linewidth=2, label='Peptide Backbone RMSD')
         ax1.tick_params(axis='y', labelcolor=color)
@@ -393,6 +453,30 @@ def compile_candidate(folder):
         fig.tight_layout()
         plt.savefig(os.path.join(summary_dir, f"{folder}_stability_profile.png"), dpi=300)
         plt.close()
+
+        # D. Time-Series Free Binding Energy Dashboard
+        if window_energies:
+            fig, ax = plt.subplots(figsize=(10, 5))
+            
+            ax.plot(window_frames, window_energies, color='tab:red', alpha=0.25, label='Instantaneous $\Delta G$')
+            
+            window_size = max(1, len(window_energies) // 20)
+            if len(window_energies) >= window_size:
+                rolling_avg = np.convolve(window_energies, np.ones(window_size)/window_size, mode='valid')
+                rolling_frames = window_frames[window_size-1:]
+                ax.plot(rolling_frames, rolling_avg, color='darkred', linewidth=2, label=f'Rolling Avg ({window_size} frames)')
+            
+            ax.axhline(dg_final, color='black', linestyle='--', linewidth=1.5, label=f'Mean $\Delta G$: {dg_final:.2f} $\pm$ {dg_std:.2f} kcal/mol')
+            
+            ax.set_xlabel(f'Absolute Simulation Frame Index (Window: {start_frame}–{end_frame})', fontsize=10, fontweight='bold')
+            ax.set_ylabel('MM-GBSA $\Delta G$ (kcal/mol)', fontsize=10, fontweight='bold')
+            ax.set_title(f"Thermodynamic Binding Energy Profile: {folder}", fontsize=12, pad=10)
+            ax.legend(loc='upper right')
+            ax.grid(True, alpha=0.3)
+            
+            fig.tight_layout()
+            plt.savefig(os.path.join(summary_dir, f"{folder}_mmgbsa_energy_profile.png"), dpi=300)
+            plt.close()
         
         print(f"   ✅ [SUCCESS] Graphic & trajectory exports complete for {folder}.", flush=True)
         return compiled_row

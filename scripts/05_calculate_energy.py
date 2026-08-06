@@ -10,7 +10,7 @@ import openmm.app as app
 import openmm.unit as unit
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-# ⚡ Force immediate terminal output
+# Force immediate terminal output
 os.environ["PYTHONUNBUFFERED"] = "1"
 
 print("====================================================", flush=True)
@@ -63,6 +63,7 @@ def process_mmgbsa(folder):
     nc_path = os.path.join(model_md_path, "trajectory.nc")
     output_csv = os.path.join(mmgbsa_out_dir, f"{folder}_mmpbsa.csv")
     
+    # If the file exists, we assume it's good unless you delete it to force a re-run.
     if os.path.exists(output_csv):
         return f" ⏩ [SMART RESUME] Existing MM-GBSA data found for {folder}. Skipping."
         
@@ -75,6 +76,7 @@ def process_mmgbsa(folder):
         total_frames = raw_traj.n_frames
         
         default_start = total_frames // 2
+        # Pull start/end/interval from config for dynamic windowing
         start_frame = config.get('mmpbsa_start_frame', default_start)
         end_frame = config.get('mmpbsa_end_frame', -1)
         frame_interval = config.get('mmpbsa_interval', 10)
@@ -129,7 +131,7 @@ def process_mmgbsa(folder):
             dg = e_comp - (e_rec + e_lig)
             energies.append(dg)
             
-            # 👇 REAL-TIME SPEEDOMETER (Shows actual absolute frame index mapped to your run)
+            # REAL-TIME SPEEDOMETER (Shows actual absolute frame index mapped to your run)
             absolute_frame_idx = start_frame + (i * frame_interval)
             if (i + 1) % 10 == 0 or i == 0:
                 print(f"   ▶ [{folder}] Abs Frame {absolute_frame_idx:04d}/{total_frames} (Step {i+1}/{traj.n_frames}) | Running Avg: {np.mean(energies):.2f} kcal/mol", flush=True)
@@ -137,11 +139,21 @@ def process_mmgbsa(folder):
         dg_final = np.mean(energies)
         dg_std = np.std(energies)
         
-        # Write Phase 6 CSV
+        # Write Phase 6 CSV - UPDATED TO INCLUDE RAW FRAME DATA
         with open(output_csv, "w", newline="") as f:
             writer = csv.writer(f)
+            # 1. Write the main summary data required by Phase 6
             writer.writerow(["Model", "Method", "Gas", "Solv", "Delta_G_kcal_mol", "Std_Dev"])
             writer.writerow([folder, "MM-GBSA", "0.0", "0.0", round(dg_final, 2), round(dg_std, 2)])
+            
+            # 2. Add an empty spacer row for clarity
+            writer.writerow([])
+            
+            # 3. Write the detailed raw frame data below
+            writer.writerow(["Absolute_Frame_Index", "Frame_Delta_G_kcal_mol"])
+            for idx, raw_dg in enumerate(energies):
+                abs_frame = start_frame + (idx * frame_interval)
+                writer.writerow([abs_frame, round(raw_dg, 4)])
         
         return f" ✅ FINAL PRODUCTION MM-GBSA ΔG for {folder}: {dg_final:.2f} ± {dg_std:.2f} kcal/mol"
         
