@@ -3,21 +3,21 @@
 # =====================================================================
 
 # --- 1. FACTORY RUN SETTINGS ---
-run_folder_name: "your_yaml_path"
-num_seeds:  500 # Number of Seeds (Sequences Generated)
-top_k: 3           # Number of Top candidates through pipeline
-samples_per_seed: 5          # Number of Boltz seeds per sequence
-max_discovery_loops: 5 
-deep_dive_samples: 25 # Followinmg first pass, # of seeds for top_k candidates
+run_folder_name: "S3-Dock_MDM2_Candidate"
+num_seeds:  10
+top_k: 1   # Default to 1000 tracks (Ignored if benchmark_mode is true)
+samples_per_seed: 5           # 1 structural prediction per fasta seed entry
+max_discovery_loops: 5
+deep_dive_samples: 25
 
 # --- 2. PEPTIDE DESIGN CONSTRAINTS ---
-peptide_length: 22 
+peptide_length: 12
 
 # Structural Control ("helix" or "beta_sheet")
-secondary_structure: "helix"  
+secondary_structure: "[enter_secondary_structure_here]"  
 
 # Chemical Property ("amphipathic", "hydrophobic", "hydrophilic")
-peptide_property: "amphipathic"
+peptide_property: "{enter_peptide_property_here}"
 
 # Override (Leave blank "" to let the pipeline build the H/P pattern automatically)
 custom_pattern: ""
@@ -25,90 +25,85 @@ custom_pattern: ""
 # 🔬 BENCHMARK GATEKEEPER MATRIX
 # Set benchmark_mode to true to duplicate the sequence across 1000 slots and select the top 1
 benchmark_mode: false                        
-benchmark_sequence: "MEFVAKLFKFFKDLLGKFLGNN"  # PSM-alpha-3 Control Sequence
-benchmark_samples: 10                    # Total fasta seeds to write into library.fasta
+benchmark_sequence: "{enter_benchmark_sequence_here}"  # PSM-alpha-3 Control Sequence
+benchmark_samples: 150                    # Total fasta seeds to write into library.fasta
 
 # Strict Biochemical Filtering Targets (Used if benchmark_mode is false)
-target_net_charge: 1.993    # Target electrical charge at pH 7.4
-boman_index_min: 0.289         # Minimum binding potential/solubility
-hydrophobic_moment_target: 0.678 # Targeted Hydrophobic Moment
+target_net_charge: [net_charge_value]    # Target electrical charge at pH 7.4
+boman_index_min: [boman_index_value]         # Minimum binding potential/solubility
+hydrophobic_moment_target: [enter_hydrophobic_moment_value]  # Target hydrophobic moment for amphipathic peptides
 
 # --- 2b. EVOLUTIONARY OPTIMIZER (MONTE CARLO) SETTINGS ---
-rng_seed: 120000     # Master RNG seed for deep learning and optimizer reproducibility
-charge_tolerance: 0.5        
-charge_weight: 10            
-boman_weight: 5              
-moment_weight: 5             
-max_mutations: 50000         
-plateau_patience: 800        
-initial_temp: 1.5            
-cooling_rate: 0.9995         
-dedupe_output: True          
+rng_seed: 7237     # Master RNG seed for deep learning and optimizer reproducibility
+charge_tolerance: 0.5  # Tolerence for the net charge of the peptide (pH 7.4)      
+charge_weight: 10  # Weight for the net charge of the peptide (pH 7.4) in the scoring function          
+boman_weight: 5    # Weight for the Boman index of the peptide in the scoring function          
+moment_weight: 5   # Weight for the hydrophobic moment of the peptide in the scoring function          
+max_mutations: 50000  # Maximum number of mutations to perform in the Monte Carlo optimization       
+plateau_patience: 800  # Number of iterations to wait for improvement before early stopping      
+initial_temp: 1.5     # Initial temperature for the Monte Carlo optimization       
+cooling_rate: 0.9995  # Cooling rate for the Monte Carlo optimization       
+dedupe_output: True   # Whether to remove duplicate sequences from the output       
 
 # --- 3. DYNAMIC RECEPTOR TARGET SETTINGS ---
-target_cif: "your_target_protein_cif_path"
-binder_chain_id: "chain_letter" 
+target_cif: "{enter_path}" # Path to the CIF file of the target receptor
+binder_chain_id: "{chain_id}" # Chain ID of the binder peptide in the CIF file
+is_fibril: false # Whether the target is a fibril (true) or not (false)
 
-target_chains_and_sequences: # Sequence chains for target protein
-  A: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
-  B: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
-  C: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
-  D: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
-  E: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
-  F: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
-  G: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
-  H: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
-  I: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
-  J: "LYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKK"
+target_chains_and_sequences:
+  {chain_ID}: "{ enter_sequence }" # Sequence of the target receptor chain 
 
 # --- 4. UNIVERSAL STRUCTURAL POCKET CONSTRAINTS ---
-pocket_contacts: # Target Residues
-  - ["I", 10]
-  - ["I", 11]
-  - ["I", 12]
-  - ["I", 13]
-  - ["I", 14]
-  - ["I", 15]
-  - ["I", 16]
-  - ["I", 17]
-  - ["I", 18]
-  - ["I", 19]
-  - ["J", 10]
-  - ["J", 11]
-  - ["J", 12]
-  - ["J", 13]
-  - ["J", 14]
-  - ["J", 15]
-  - ["J", 16]
-  - ["J", 17]
-  - ["J", 18]
-  - ["J", 19]
+max_distance_threshold: 5.0 # Maximum distance threshold for pocket contacts (in Angstroms)
+pocket_contacts: # List of pocket contacts to enforce during docking (format: [chain_id, residue_number])
+  - ["{chain_ID}", {enter_residue_number}]
+  - ["{chain_ID}", {enter_residue_number}]
+  - ["{chain_ID}", {enter_residue_number}]
+  - ["{chain_ID}", {enter_residue_number}]
+  - ["{chain_ID}", {enter_residue_number}]
+  - ["{chain_ID}", {enter_residue_number}]
+  - ["{chain_ID}", {enter_residue_number}]
+  - ["{chain_ID}", {enter_residue_number}]
+  - ["{chain_ID}", {enter_residue_number}]
+  - ["{chain_ID}", {enter_residue_number}]
+  - ["{chain_ID}", {enter_residue_number}]
+  - ["{chain_ID}", {enter_residue_number}]
+  - ["{chain_ID}", {enter_residue_number}]
+  - ["{chain_ID}", {enter_residue_number}]
+  - ["{chain_ID}", {enter_residue_number}]
+  - ["{chain_ID}", {enter_residue_number}]
+  - ["{chain_ID}", {enter_residue_number}]
 
 # --- 5. QUALITY CONTROL GATEKEEPERS ---
-enforce_boltz_constraints: true 
-require_pocket_filter: true
-min_pocket_contacts: 4  
-max_distance_threshold: 8
-use_msa_filter: true
-tm_threshold: 0.85
+enforce_boltz_constraints: true # Whether to enforce Boltzmann constraints during optimization
+require_pocket_filter: true # Whether to require pocket contact filtering during optimization
+min_pocket_contacts: 4  # Minimum number of pocket contacts required for a valid docking pose
+max_distance_threshold: 8 # Maximum distance threshold for pocket contacts (in Angstroms) for filtering
+use_msa_filter: true # Whether to use MSA filtering during optimization
+tm_threshold: 0.85 # Minimum TM-score threshold for structural similarity filtering
 
 
 # --- 6. HADDOCK3 BLIND GLOBAL DOCKING SETTINGS ---
-run_haddock: false                  # Set to true to run HADDOCK, false to skip to OpenMM
-rnd_haddock_seed: 100
-haddock_sampling: 1000             
-haddock_seletop: 100                
-haddock_top_clusters: 10            
-
+rnd_haddock_seed: 100 # Random seed for HADDOCK3 docking reproducibility
+run_haddock: false  # Whether to run HADDOCK3 docking (true) or skip it (false)             
+haddock_sampling: 1000  # Number of docking poses to sample in HADDOCK3            
+haddock_seletop: 100   # Number of top docking poses to select for further analysis in HADDOCK3             
+haddock_top_clusters: 10 # Number of top docking clusters to analyze in HADDOCK3
 
 # --- 7. OPENMM MOLECULAR DYNAMICS SETTINGS ---
-md_simulation_steps: 50000000      # Production-scale trajectory length
+extend_simulation: true   # Whether to extend the molecular dynamics simulation (true) or not (false)
+md_simulation_steps: 100000      # Production-scale trajectory length
 md_reporting_interval: 10000         # Yields exactly 5,000 saved trajectory frames
-md_temperature_kelvin: 310.15
-md_NaCl_concentration: 0.150       
+md_temperature_kelvin: 310.15 # Temperature for the molecular dynamics simulation (in Kelvin)
+md_NaCl_concentration: 0.150   # Salt concentration for the molecular dynamics simulation (in Molar)    
 
 # --- 8. MMPBSA ENERGY CALCULATION SETTINGS ---
-mmpbsa_start_frame: 2500             # Excludes first 50% relaxation/burn-in window
-mmpbsa_end_frame: 5000         # Terminal frame boundaries
-mmpbsa_interval: 1                  # Samples exactly 250 production frames
-mmpbsa_salt_concentration: 0.150
+mmpbsa_start_frame: 0 # Starting frame for MMPBSA energy calculations (0 = first frame)
+mmpbsa_end_frame: -1 # Ending frame for MMPBSA energy calculations (-1 = last frame)
+mmpbsa_interval: 1 # Interval for MMPBSA energy calculations (1 = every frame)
+mmpbsa_salt_concentration: 0.150 # Salt concentration for MMPBSA energy calculations (in Molar)
+
+# --- DYNAMIC ANALYSIS WINDOW CONFIGURATION ---
+analysis_start_frame: 5  # Set to your desired start (e.g., 70ns)
+analysis_end_frame: -1      # -1 means go all the way to the final frame
+analysis_stride: 1          # Stride interval for plotting and calculations

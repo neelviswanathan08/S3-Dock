@@ -15,9 +15,9 @@ if [ ! -d "envs/boltz_env" ]; then
 fi
 
 # 2. HADDOCK3 Environment
-if [ ! -d "envs/haddock_env" ]; then
-    echo " Creating local HADDOCK3 environment from envs/ directory..."
-    conda env create --prefix envs/haddock_env -f envs/haddock_env.yml -y
+if [ ! -d "envs/blind_dock_env" ]; then
+    echo " Creating local Blind Docking environment from envs/ directory..."
+    conda env create --prefix envs/blind_dock_env -f envs/blind_dock_env.yml -y
 fi
 
 # 3. OpenMM Physics Environment
@@ -26,7 +26,7 @@ if [ ! -d "envs/openmm_env" ]; then
     conda env create --prefix envs/openmm_env -f envs/openmm_env.yml -y
 fi
 
-echo " All environments verified and locked locally."
+echo "✅ All environments verified and locked locally."
 echo "---------------------------------------------------------------------"
-cd scripts/ || { echo "ERROR: scripts/ folder missing!"; exit 1; }
+cd scripts/ || { echo "❌ ERROR: scripts/ folder missing!"; exit 1; }
 

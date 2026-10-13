@@ -1,451 +1,375 @@
-# 🧬 S3-Dock
+# S3-Dock: Reproducible Workflow for Peptide Discovery and Structural Evaluation
 
-> **A Feature-Based-to-Structure Pipeline for Computational Peptide Design**
+S3-Dock is a computational workflow for the in silico generation, structural screening, docking, and molecular-dynamics refinement of peptide candidates against a target protein or receptor assembly. The pipeline integrates sequence generation, structure prediction, pocket-aware filtering, blind docking, molecular dynamics simulation, and energetic analysis within a reproducible computational framework designed for structured peptide-discovery studies.
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
-![Platform](https://img.shields.io/badge/Platform-Linux-lightgrey.svg)
-![CUDA](https://img.shields.io/badge/CUDA-12.x-success.svg)
-![License](https://img.shields.io/badge/License-MIT-green.svg)
+This repository supports end-to-end computational analysis in a controlled and traceable manner. Candidate peptide libraries are generated, filtered using biophysical and structural criteria, evaluated through docking and simulation, and compiled into summary outputs suitable for downstream comparative analysis and manuscript reporting.
 
 ---
 
-# Overview
+## Overview
 
-**S3-Dock** is a modular computational workflow for **feature-guided peptide design and structural evaluation**.
+The workflow is organized as a modular, end-to-end pipeline comprising the following stages:
 
-The pipeline was originally developed to investigate peptide inhibitors targeting the **α-synuclein rod polymorph fibril**, with the goal of integrating sequence optimization, AI-based structural prediction, structural filtering, molecular docking, molecular dynamics simulations, and trajectory-based analysis into a single reproducible workflow.
+1. Generation of peptide candidate libraries under defined physicochemical constraints;
+2. Structural screening and validation of candidate designs;
+3. Pocket-aware filtering based on contact geometry and interface plausibility;
+4. Blind docking of selected candidates to the target receptor;
+5. Molecular-dynamics refinement and trajectory analysis;
+6. Energetic evaluation of simulated complexes;
+7. Compilation of final results into summary tables and figures for comparative analysis.
 
-Unlike many workflows that begin by generating structures directly, S3-Dock follows a **feature-based-to-structure** design philosophy. Candidate peptides are first generated to satisfy user-defined physicochemical objectives before undergoing progressively more computationally intensive structural evaluation.
-
-S3-Dock should be viewed as a research workflow for computational hypothesis generation. It does **not** introduce new prediction models, nor is it intended to replace existing protein design software. Instead, it provides a configurable framework for combining several established computational tools into a single automated pipeline.
-
----
-
-# Scope & Intended Use
-
-> **Please read this section before using S3-Dock.**
-
-S3-Dock was **originally developed to support computational studies of peptide inhibitors targeting the α-synuclein rod polymorph fibril**.
-
-The default workflow, configuration examples, filtering criteria, and scoring strategy were developed with this application in mind.
-
-Although the pipeline is modular and individual stages may be adapted to other peptide–protein interaction problems, **its default parameters should not be assumed to generalize to unrelated biological systems without additional validation.**
-
-S3-Dock is therefore best viewed as an **alternative workflow** for situations where users wish to begin from predefined biophysical characteristics—such as charge, hydrophobic moment, or amphipathicity—and subsequently evaluate those candidates through progressively more detailed structural analyses.
-
-Users intending to study different targets are encouraged to modify the configuration files, filtering thresholds, and validation strategy to match the biological system under investigation.
+The repository is intended for reproducible, research-focused evaluation of peptide–protein interaction hypotheses under the software stack and operating conditions specified in the environment files. It is not intended as a universal computational platform for all biomolecular systems without configuration, validation, and domain-specific adaptation.
 
 ---
 
-# Design Philosophy
+## Scientific workflow
 
-Many modern peptide design workflows begin with structural generation or end-to-end AI models.
+### Phase 1: Sequence Generation
+File: `scripts/01_generate_seq.py`
 
-S3-Dock instead adopts a **feature-first** strategy.
+This phase generates a peptide library under user-defined constraints, including peptide length, secondary-structure pattern, net charge, Boman index, and hydrophobic moment. The optimizer employs a stochastic search strategy to evolve sequences toward target physicochemical properties while maintaining a sequence pattern consistent with the desired fold.
 
-Rather than attempting to directly generate binders, the workflow first constructs peptide sequences that satisfy predefined physicochemical objectives before evaluating those sequences through multiple independent structural and thermodynamic analyses.
+### Phase 2: Structural Prediction and Screening
+File: `scripts/02_predict_struct.py`
 
-This staged approach allows inexpensive computational filters to remove poor candidates before more computationally demanding simulations are performed.
+This phase evaluates each candidate sequence for structural plausibility using structure prediction and validation routines. It assesses peptide–target geometry, performs pocket-aware contact checks, and filters out designs that fail interface or structural quality criteria.
 
-The pipeline emphasizes:
+### Phase 3: Blind Docking
+File: `scripts/03_blind_dock.py`
 
-- Modular workflow design
-- Configuration-driven execution
-- Reproducibility
-- Checkpoint-based recovery
-- Compatibility with established structural biology software
+Surviving designs are evaluated by blind global docking. This stage explores plausible binding poses between the peptide and target without a predefined binding orientation, generating candidate docked complexes for downstream refinement.
+
+### Phase 4: Molecular Dynamics Simulation
+File: `scripts/04_md_simulate.py`
+
+Candidate complexes are refined using explicit-solvent molecular dynamics in a reproducible simulation setup. The workflow includes geometry preparation, trajectory generation, and quality-control checks for dynamic stability.
+
+### Phase 5: Energy Calculation
+File: `scripts/05_calculate_energy.py`
+
+Binding and interaction energetics are evaluated on the simulated trajectory, yielding quantitative measures relevant to stability and interaction strength.
+
+### Phase 6: Summary Compilation
+File: `scripts/06_compile_summary.py`
+
+The final stage compiles per-candidate data into summary plots and tabular outputs. This facilitates comparative analysis across designs and provides a structured basis for manuscript-ready reporting.
 
 ---
 
-# Workflow Overview
+## Repository structure
 
+```text
+S3-Dock/
+├── README.md
+├── config.yaml
+├── conda_env.sh
+├── run_pipeline.sh
+├── inputs/
+│   ├── MDM2.cif
+│   ├── PSD-95.cif
+│   └── ...
+├── results/
+│   └── <run_name>/
+│       ├── library.fasta
+│       ├── top_designs/
+│       ├── md_simulations/
+│       ├── mmgbsa_results/
+│       └── final_summary/
+├── scripts/
+│   ├── 01_generate_seq.py
+│   ├── 02_predict_struct.py
+│   ├── 03_blind_dock.py
+│   ├── 04_md_simulate.py
+│   ├── 05_calculate_energy.py
+│   ├── 06_compile_summary.py
+│   ├── MD_Simulation_Sanity.py
+│   ├── Sequence_Property_check.py
+│   ├── Spearman_Correlation.py
+│   └── ...
+├── envs/
+│   ├── blind_dock_env.yml
+│   ├── boltz_env.yml
+│   ├── openmm_env.yml
+│   └── ...
+├── Control_yaml/
+│   ├── CRIPT_Boltz/
+│   ├── MDM2_Comparison/
+│   └── MDM2_p53_Boltz/
+├── test_benchmarks/
+│   ├── CRIPT_negative/
+│   ├── CRIPT_positive/
+│   ├── MDM2_Bindcraft/
+│   ├── MDM2_Colab/
+│   ├── MDM2_Negative/
+│   └── MDM2_Positive/
+├── Compilation_files/
+│   ├── CRIPT_VS_CONTROL_BOLTZ.py
+│   ├── CRIPT_VS_CONTROL_CRYSTAL.py
+│   ├── MDM2_PIPELINE_COMP.py
+│   ├── MDM2_VS_CONTROL_BOLTZ.py
+│   └── MDM2_VS_CONTROL_CRYSTAL.py
+└── ...
 ```
-Input Configuration
-        │
-        ▼
-Feature-Based Sequence Optimization
-        │
-        ▼
-Sequence Library
-        │
-        ▼
-Boltz-2 Structure Prediction
-        │
-        ▼
-Structural Filtering
-        │
-        ▼
-(Optional)
-HADDOCK3 Docking
-        │
-        ▼
-OpenMM Molecular Dynamics
-        │
-        ▼
-MM-GBSA Analysis
-        │
-        ▼
-Result Aggregation
-```
 
 ---
 
-# Pipeline Architecture
+## Requirements
 
-S3-Dock is organized into six primary computational stages.
+### Hardware
 
----
+- Linux-based operating system;
+- CUDA-capable NVIDIA GPU strongly recommended for structure-prediction and molecular-dynamics stages;
+- adequate storage for intermediate trajectory files, docking outputs, and analysis results.
 
-# Phase 1 — Feature-Based Sequence Generation
+### Software
 
-Novel peptide sequences are generated using a **Simulated Annealing Monte Carlo** optimization strategy.
-
-Instead of directly optimizing structural predictions, candidate sequences are evaluated against predefined physicochemical objectives using the `peptides` Python package.
-
-Typical optimization targets include:
-
-- Net Charge
-- Boman Index
-- Hydrophobic Moment
-- Secondary Structure Preference
-  - α-Helix
-  - β-Sheet
-
-Known benchmark or experimentally characterized sequences may optionally bypass this optimization stage and proceed directly to structural prediction.
+- Conda or Miniconda;
+- Python 3.x compatible with the project environment files;
+- GPU-enabled ML stack for the Boltz/structure-prediction stage;
+- MD and docking dependencies defined in the repository environment specifications.
 
 ---
 
-# Phase 2 — Structure Prediction & Structural Filtering
+## Environment Setup
 
-Candidate peptides are folded against the target receptor using **Boltz-2**.
+The repository requires dedicated conda environments for the primary computational stages. The corresponding environment files are provided in the `envs/` directory.
 
-Each predicted complex then undergoes several independent filtering stages before advancing further into the workflow.
-
-## Structural Confidence
-
-Low-confidence predictions may be removed using metrics such as:
-
-- ipTM
-- pTM
-- model confidence estimates
-
----
-
-## Interface Validation
-
-Predicted complexes are evaluated to determine whether peptide binding occurs at the intended interface rather than an unrelated surface.
-
----
-
-## Structural Integrity
-
-US-align is used to evaluate whether peptide binding substantially perturbs the native receptor structure.
-
-Typical metrics include:
-
-- TM-score
-- RMSD
-
----
-
-## Interface Energetics
-
-PyRosetta's **InterfaceAnalyzerMover** may be used to estimate interface energetics as an additional filtering criterion.
-
-Depending on the workflow configuration, promising candidates may optionally undergo additional structural sampling.
-
----
-
-# Phase 3 — Optional Docking Validation
-
-This stage provides an independent assessment of predicted complexes.
-
-Docking is performed using **HADDOCK3**.
-
-Docked complexes may subsequently be evaluated using:
-
-- PRODIGY
-- Predicted binding affinity
-- Estimated dissociation constant
-
-Because Boltz-2 already predicts multimeric complexes, this stage is optional and may be disabled through the configuration file.
-
----
-
-# Phase 4 — Molecular Dynamics Simulation
-
-Selected peptide–protein complexes are simulated using **OpenMM** with CUDA acceleration.
-
-Typical simulation workflow:
-
-- Explicit TIP3P solvent
-- AMBER14 force field
-- Energy minimization
-- Equilibration
-- Production molecular dynamics
-
-Checkpoint files are generated during execution, allowing interrupted simulations to resume without restarting.
-
----
-
-# Phase 5 — MM-GBSA Analysis
-
-Following production simulations, explicit solvent is removed and trajectories are re-evaluated using an implicit solvent model.
-
-Typical analyses include:
-
-- MM-GBSA energy estimation
-- Frame averaging
-- Trajectory slicing
-- Running ΔG estimation
-
-These values provide approximate energetic descriptors and should be interpreted accordingly.
-
----
-
-# Phase 6 — Result Aggregation
-
-Outputs generated throughout the workflow are combined into a single summary directory.
-
-Typical outputs include:
-
-- Sequence descriptors
-- Structural metrics
-- Docking statistics
-- Molecular dynamics analyses
-- MM-GBSA estimates
-
-Several analysis figures are also generated automatically, including:
-
-- Backbone RMSD
-- Hydrogen Bond Profiles
-- Residue Contact Maps
-- Binding Hotspot Histograms
-- Interface Interaction Networks
-
-Trajectory files compatible with ChimeraX are exported for visualization.
-
----
-
-# Hardware Requirements
-
-S3-Dock was developed and tested on Linux systems equipped with NVIDIA GPUs.
-
-Recommended environment:
-
-| Component | Recommendation |
-|------------|---------------|
-| Operating System | Ubuntu 22.04+ |
-| Python | 3.10+ |
-| CUDA Toolkit | 12.x |
-| GPU | CUDA-capable NVIDIA GPU |
-| Package Manager | Miniconda / Anaconda |
-
-Because multiple third-party packages have incompatible dependencies, S3-Dock uses isolated Conda environments.
-
----
-
-# Installation
-
-Clone the repository:
+### Recommended Setup
 
 ```bash
-git clone https://github.com/neelviswanathan08/S3-Dock.git
-
-cd S3-Dock
+chmod +x conda_env.sh
+./conda_env.sh
 ```
 
----
+This script creates the local environment prefixes required by the workflow, including the Boltz, blind docking, and OpenMM stages.
 
-# Conda Environments
+### Manual Environment Creation
 
-The workflow assumes separate environments for different software packages.
-
-Example environments:
-
-```
-envs/
-
-├── boltz_env
-├── openmm_env
-└── haddock_env
-```
-
-Example packages include:
-
-### boltz_env
-
-- Boltz-2
-- PyTorch
-- PyRosetta
-- BioPython
-
-### openmm_env
-
-- OpenMM
-- MDTraj
-- PDBFixer
-
-### haddock_env
-
-- HADDOCK3
-
----
-
-# Configuration
-
-Pipeline behavior is controlled through a YAML configuration file.
-
-Example:
-
-```yaml
-run_folder_name: Ultra_aSyn_candidate
-
-peptide_length: 22
-
-secondary_structure: helix
-
-target_net_charge: 1.993
-
-hydrophobic_moment_target: 0.678
-
-target_cif: inputs/aSyn_fibril.cif
-
-binder_chain_id: K
-
-md_simulation_steps: 50000000
-
-md_reporting_interval: 10000
-
-mmpbsa_start_frame: 2500
-
-mmpbsa_end_frame: 5000
-
-mmpbsa_interval: 1
-```
-
-Because all major settings are configuration driven, multiple independent targets may be processed without modifying the source code.
-
----
-
-# Running the Pipeline
-
-Single run:
+If preferred, the environments may be created explicitly:
 
 ```bash
-./run_pipeline.sh config_targetA.yaml
+conda env create --prefix envs/boltz_env -f envs/boltz_env.yml
+conda env create --prefix envs/blind_dock_env -f envs/blind_dock_env.yml
+conda env create --prefix envs/openmm_env -f envs/openmm_env.yml
 ```
 
-Multiple concurrent runs:
+> The environment names and prefixes should match those used by the pipeline scripts to maintain reproducibility.
+
+---
+
+## Configuration
+
+The central configuration file is `config.yaml`. It defines the run name, peptide design constraints, target receptor, docking settings, molecular dynamics parameters, and summary behavior.
+
+Key configuration categories include:
+
+- `run_folder_name`: output directory under `results/`;
+- `num_seeds`: number of candidate sequences to generate;
+- `peptide_length`: target peptide length;
+- `secondary_structure`: helix or beta-sheet design mode;
+- `peptide_property`: amphipathic, hydrophobic, or hydrophilic;
+- `target_cif`: receptor structure used for docking and analysis;
+- `target_chains_and_sequences`: receptor sequence metadata;
+- `benchmark_mode`: optional benchmark or control-sequence mode;
+- `md_simulation_steps`: molecular-dynamics production length;
+- `analysis_start_frame`, `analysis_end_frame`, `analysis_stride`: analysis window configuration;
+- `rng_seed`: reproducibility seed for stochastic generation.
+
+A typical run is configured by modifying the target receptor path, peptide constraints, and output folder name before executing the pipeline.
+
+---
+
+## Full Reproducible Execution
+
+The recommended approach is to run the complete workflow through the project runner:
 
 ```bash
-./run_pipeline.sh config_targetA.yaml &
-
-./run_pipeline.sh config_targetB.yaml &
+chmod +x run_pipeline.sh
+./run_pipeline.sh config.yaml
 ```
 
-Completed workflow stages are automatically detected, allowing interrupted runs to resume without repeating completed computations.
+The runner executes the full computational sequence and automatically skips tasks already present in the output directory.
+
+### End-to-End Workflow
+
+The pipeline proceeds in the following order:
+
+1. Sequence library generation;
+2. Structure prediction and screening;
+3. Blind docking;
+4. Molecular dynamics simulation;
+5. Energetic analysis;
+6. Final summary generation.
 
 ---
 
-# Output Directory
+## Modular Execution
 
-Results are organized by run name.
+For debugging or targeted validation, individual stages may be executed separately:
 
-```
-results/
-
-└── <run_folder_name>/
-```
-
-Typical outputs include:
-
-```
-pipeline_summary_report.csv
-
-binding_hotspots.png
-
-interaction_network.png
-
-stability_profile.png
-
-trajectory.dcd
-
-topology.pdb
+```bash
+./envs/boltz_env/bin/python scripts/01_generate_seq.py --config config.yaml
+./envs/boltz_env/bin/python scripts/02_predict_struct.py --config config.yaml
+./envs/blind_dock_env/bin/python scripts/03_blind_dock.py --config config.yaml
+./envs/openmm_env/bin/python scripts/04_md_simulate.py --config config.yaml
+./envs/openmm_env/bin/python scripts/05_calculate_energy.py --config config.yaml
+./envs/openmm_env/bin/python scripts/06_compile_summary.py --config config.yaml
 ```
 
-Intermediate files generated throughout the workflow are retained to facilitate reproducibility and downstream analysis.
+This modular mode is useful for evaluating a single stage, comparing parameter sets, or diagnosing failures in a reproducible workflow.
 
 ---
 
-# Repository Philosophy
+## Reproducibility Practices
 
-S3-Dock intentionally integrates existing computational methods rather than replacing them.
+For manuscript-grade reproducibility, the following information should be recorded for each run:
 
-The pipeline emphasizes reproducibility and automation by combining established structural biology software into a configurable workflow.
+- Exact `config.yaml` used;
+- `run_folder_name`;
+- RNG seed value in the configuration;
+- Target input CIF file;
+- Environment creation commands and package versions;
+- Date and time of execution;
+- Final result directory under `results/`.
 
-Users are encouraged to adapt individual stages to their own systems, modify filtering criteria where appropriate, and independently validate any computational predictions.
-
----
-
-# Current Limitations
-
-S3-Dock is an active research workflow.
-
-Current limitations include:
-
-- The default workflow was developed for peptide inhibitor design against the α-synuclein rod polymorph fibril.
-- Performance on unrelated targets has not been comprehensively evaluated.
-- MM-GBSA provides approximate energetic estimates rather than rigorous binding free energies.
-- Structural predictions remain dependent on the assumptions and limitations of the underlying prediction software.
-- Computational predictions should be interpreted as hypotheses requiring experimental validation.
+The workflow is designed to preserve reproducibility by using explicit seeds and by storing results within a run-specific directory.
 
 ---
 
-# Reproducibility
+## Software Stack and Version Constraints
 
-The workflow emphasizes reproducible computational experiments through:
+The repository is configured around a specific, versioned computational stack defined in the environment files. The workflow is intended to be reproducible only under the exact package combinations described below; results obtained with alternative versions or mixed environments should be considered non-equivalent unless separately validated.
 
-- Configuration-driven execution
-- Isolated software environments
-- Checkpoint-based recovery
-- Preservation of intermediate outputs
-- Modular pipeline stages
+### Boltz / Structure Prediction Environment
+
+Environment file: `envs/boltz_env.yml`
+
+- Python: `3.12.12`
+- PyTorch: `2.9.1`
+- Boltz: `2.2.1`
+- Biopython: `1.84`
+- RDKit: `2025.9.1`
+- scikit-learn: `1.6.1`
+- SciPy: `1.13.1`
+- NumPy: `<2.0`
+- `peptides` package
+- `PyRosetta` (`pyrosetta`)
+
+This environment is the primary engine for sequence optimization and structural screening. It is intended for Linux systems with NVIDIA CUDA support and is most reliable when GPU acceleration is available for the Boltz model and the underlying ML stack.
+
+### Blind Docking Environment
+
+Environment file: `envs/blind_dock_env.yml`
+
+- Python: `3.10.20`
+- HADDOCK3: `2026.5.0`
+- Biopython: `1.87`
+- NumPy: `2.2.6`
+- SciPy: `1.15.3`
+- pandas: `2.3.3`
+- PRODIGY-prot: `2.3.0`
+- PRODIGY-lig: `1.1.4`
+- freesasa: `2.2.1`
+
+This environment implements the docking and thermodynamic screening layer used by the repository.
+
+### OpenMM / Molecular Dynamics Environment
+
+Environment file: `envs/openmm_env.yml`
+
+- Python: `3.12`
+- OpenMM: `8.5.2`
+- MDTraj: `1.11.1`
+- PDBFixer: `1.12`
+- NumPy: environment-managed variant
+- SciPy: environment-managed variant
+- matplotlib: `3.11.0`
+- seaborn: `0.13.2`
+- netCDF4: `1.7.1.post1`
+
+This environment supports explicit-solvent molecular dynamics refinement and downstream energetic analysis. It is among the most hardware-sensitive components of the workflow and is intended for execution on a Linux workstation or cluster node with a compatible NVIDIA CUDA stack.
 
 ---
 
-# Citation
+## Limitations and Operating Constraints
 
-If S3-Dock contributes to published work, please cite this repository together with the original publications describing the external software used throughout the workflow, including Boltz-2, HADDOCK3, OpenMM, PyRosetta, MDTraj, and other dependencies.
+This workflow is designed for a defined operating envelope and should be interpreted within that scope.
 
----
+- Linux is the supported operating environment for the current setup;
+- CUDA-capable GPU hardware is strongly recommended for the Boltz and molecular-dynamics stages; CPU-only execution may be possible for limited tests but is not the intended production mode;
+- the receptor structure should be supplied as a reasonably complete and well-resolved CIF file;
+- the pipeline is intended primarily for peptide–protein interaction studies and is not a general-purpose solution for all biomolecular systems without additional configuration and validation;
+- the docking and MD modules are expected to perform most reliably when the target has a well-defined binding pocket or interface region;
+- the implementation depends on the exact environment files and package versions included in the repository; mixing or substituting versions outside these files is not guaranteed to reproduce the same behavior;
+- some benchmarking and bypass controls are tuned for specific internal validation workflows and may require reconfiguration for unrelated targets or study designs.
 
-# License
+### Conditions Under Which the Workflow Is Expected to Perform Most Reliably
 
-This project is distributed under the MIT License.
+The workflow is expected to be most reliable when the following conditions are met:
 
----
+1. the receptor is a well-resolved protein structure with a defined binding interface or pocket;
+2. the peptide length and design constraints are compatible with a short-to-mid-length peptide discovery setting, typically within the range of approximately 8–20 residues;
+3. the sequence design objective is aligned with a specific physicochemical target, such as amphipathic helix design, net charge tuning, or hydrophobic moment optimization;
+4. the target site is sufficiently tractable for contact-based filtering and structural validation;
+5. the study is designed as a reproducible, system-specific computational workflow for peptide discovery and comparative analysis;
+6. the project is executed on a GPU-enabled Linux workstation or cluster using the repository-specified conda environments.
 
-# Acknowledgements
-
-S3-Dock builds upon numerous open-source software projects developed by the structural biology and computational chemistry communities, including:
-
-- Boltz-2
-- HADDOCK3
-- OpenMM
-- PyRosetta
-- MDTraj
-- BioPython
-- peptides
-- PDBFixer
-- ChimeraX
-
-The authors gratefully acknowledge the developers and maintainers of these projects.
+Under these conditions, the workflow should be understood as a reproducible and structured method for peptide–target investigation rather than as a universally generalizable predictor across all receptor classes or experimental systems.
 
 ---
 
-# Disclaimer
+## Outputs and Interpretation
 
-S3-Dock is intended for **research purposes only**.
+All outputs are organized under `results/<run_name>/`.
 
-The workflow generates computational predictions intended to support hypothesis generation and exploratory computational studies. Outputs should not be interpreted as evidence of biological activity or therapeutic efficacy without appropriate experimental validation.
+### Key Output Folders
+
+- `library.fasta`: generated peptide library;
+- `top_designs/`: top structural candidates and validation outputs;
+- `md_simulations/`: molecular-dynamics trajectory and topology files;
+- `mmgbsa_results/`: energetic analysis outputs;
+- `final_summary/`: aggregate figures and final summary tables.
+
+### Representative Outputs
+
+- candidate-level summary tables;
+- per-sequence structural and physicochemical metrics;
+- docking quality indicators;
+- molecular-dynamics stability traces;
+- interaction and energetic summaries;
+- final comparative report for downstream analysis.
+
+---
+
+## Recommended Manuscript Reporting Structure
+
+For a publication, the final analysis should report the following:
+
+1. exact target used and receptor metadata;
+2. peptide design constraints and selection logic;
+3. sequence generation settings and seed values;
+4. structure-prediction filtering thresholds;
+5. docking protocol and target constraints;
+6. molecular-dynamics simulation settings and analysis window;
+7. energetic calculations and criteria used;
+8. final output directory path and reproducible run identifier.
+
+This allows the computational workflow to be reproduced from the repository in a transparent and auditable manner.
+
+---
+
+## License
+
+This project is provided for research use. Please review the repository license and cite the project appropriately when using it in published work.
+
+---
+
+## Citation
+
+If this workflow contributes to your research, please cite both the software and the relevant manuscript or benchmark study using the project details and software versions corresponding to the experiment.
+
+---
+
+## Notes
+
+This repository is intended for computational biology and protein-design research. Results should be interpreted in conjunction with experimental validation, particularly in the context of peptide binders intended for therapeutic or mechanistic applications.

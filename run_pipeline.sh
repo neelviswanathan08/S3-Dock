@@ -31,7 +31,7 @@ fi
 
 echo " ⚙️  Loaded Configuration: $CONFIG_FILE"
 
-if [ ! -d "envs/boltz_env" ] || [ ! -d "envs/haddock_env" ] || [ ! -d "envs/openmm_env" ]; then
+if [ ! -d "envs/boltz_env" ] || [ ! -d "envs/blind_dock_env" ] || [ ! -d "envs/openmm_env" ]; then
     echo " ❌ [CRITICAL ERROR] Local runtime environments are missing!"
     exit 1
 fi
@@ -40,6 +40,11 @@ fi
 RUN_NAME=$(./envs/boltz_env/bin/python -c "import yaml; print(yaml.safe_load(open('$CONFIG_FILE'))['run_folder_name'])")
 MAX_LOOPS=$(./envs/boltz_env/bin/python -c "import yaml; print(yaml.safe_load(open('$CONFIG_FILE')).get('max_discovery_loops', 5))")
 SKIP_P2=$(./envs/boltz_env/bin/python -c "import yaml; print(str(yaml.safe_load(open('$CONFIG_FILE')).get('skip_phase_2', 'False')).lower())")
+
+# Extract Benchmark Override Flags
+BENCHMARK_PDB=$(./envs/boltz_env/bin/python -c "import yaml; print(str(yaml.safe_load(open('$CONFIG_FILE')).get('benchmark_pdb_exist', 'False')).lower())")
+BENCHMARK_CIF=$(./envs/boltz_env/bin/python -c "import yaml; print(str(yaml.safe_load(open('$CONFIG_FILE')).get('benchmark_cif_exist', 'False')).lower())")
+
 RUN_DIR="results/${RUN_NAME}"
 
 echo " 📂 Active Workspace: ${RUN_DIR}"
@@ -53,66 +58,81 @@ if [ -d "${RUN_DIR}/final_summary" ] && find "${RUN_DIR}/final_summary" -name "*
 fi
 
 # =====================================================================
-# DISCOVERY QUEUE LOOP (Phases 1 & 2)
+# DISCOVERY QUEUE LOOP OR BENCHMARK BYPASS
 # =====================================================================
-LOOP_COUNT=1
 HAS_CANDIDATES=false
 
-while [ $LOOP_COUNT -le $MAX_LOOPS ]; do
-    if [ $MAX_LOOPS -gt 1 ]; then
-        echo "---------------------------------------------------------------------"
-        echo " [DISCOVERY LOOP] Attempt $LOOP_COUNT of $MAX_LOOPS"
-        echo "---------------------------------------------------------------------"
-    fi
-
-    echo " Phase 1: Generating Sequence Library..."
-    if [ $LOOP_COUNT -eq 1 ] && [ -f "${RUN_DIR}/library.fasta" ]; then
-        echo "   -> [SMART QUEUE] Found existing library.fasta. Skipping Phase 1."
-    else
-        ./envs/boltz_env/bin/python -u scripts/01_generate_seq.py --config "$CONFIG_FILE"
-        if [ $? -ne 0 ]; then echo " ❌ Phase 1 failed!"; exit 1; fi
-    fi
-
-    # --- SMART QUEUE & HARD OVERRIDE FOR PHASE 2 ---
-    if [ "${SKIP_P2}" = "true" ]; then
-        echo " Phase 2: Boltz-2 Structural Folding..."
-        echo "   -> [OVERRIDE] skip_phase_2 is TRUE in config.yaml. Bypassing entirely."
-    elif [ -d "${RUN_DIR}/top_designs" ] && find "${RUN_DIR}/top_designs" -name "*_best.cif" -print -quit | grep -q .; then
-        echo " Phase 2: Boltz-2 Structural Folding..."
-        echo "   -> [SMART QUEUE] Champion candidates already exist in top_designs/. Bypassing Phase 2 Python overhead."
-    else
-        echo " Phase 2: Boltz-2 Structural Folding & Rosetta Matrix..."
-        ./envs/boltz_env/bin/python -u scripts/02_predict_struct.py --config "$CONFIG_FILE"
-        if [ $? -ne 0 ]; then echo " ❌ Phase 2 failed!"; exit 1; fi
-    fi
-
-    # --- GATEKEEPER CHECK ---
-    if [ -d "${RUN_DIR}/top_designs" ] && find "${RUN_DIR}/top_designs" -name "*_best.cif" -print -quit | grep -q .; then
-        HAS_CANDIDATES=true
-        break # We found a winner! Break out of the loop and continue to Phase 3.
-    else
-        echo " [DISCOVERY GATEKEEPER] No sequences survived Phase 2 validation."
-        if [ $LOOP_COUNT -lt $MAX_LOOPS ]; then
-            echo " [RETRY] Wiping failed candidates and triggering next Discovery Loop..."
-            rm -f "${RUN_DIR}/library.fasta"
-            rm -rf "${RUN_DIR}"/Seed_*
-        else
-            echo " [STOP] Maximum discovery loops ($MAX_LOOPS) reached without success."
-            echo " [SKIP] Gracefully skipping heavy docking and MD (Phases 3, 4, 5)."
+if [ "$BENCHMARK_PDB" = "true" ] || [ "$BENCHMARK_CIF" = "true" ]; then
+    echo "---------------------------------------------------------------------"
+    echo " 🛑 [BENCHMARK OVERRIDE ENABLED]"
+    echo "   -> Bypassing Phase 1 (Sequence Generation) and Phase 2 (Boltz-2)."
+    echo "   -> Proceeding directly to dynamic validation with provided structures."
+    echo "---------------------------------------------------------------------"
+    HAS_CANDIDATES=true
+else
+    LOOP_COUNT=1
+    
+    while [ $LOOP_COUNT -le $MAX_LOOPS ]; do
+        if [ $MAX_LOOPS -gt 1 ]; then
+            echo "---------------------------------------------------------------------"
+            echo " [DISCOVERY LOOP] Attempt $LOOP_COUNT of $MAX_LOOPS"
+            echo "---------------------------------------------------------------------"
         fi
-    fi
 
-    LOOP_COUNT=$((LOOP_COUNT + 1))
-done
+        echo " Phase 1: Generating Sequence Library..."
+        if [ $LOOP_COUNT -eq 1 ] && [ -f "${RUN_DIR}/library.fasta" ]; then
+            echo "   -> [SMART QUEUE] Found existing library.fasta. Skipping Phase 1."
+        else
+            ./envs/boltz_env/bin/python -u scripts/01_generate_seq.py --config "$CONFIG_FILE"
+            if [ $? -ne 0 ]; then echo " ❌ Phase 1 failed!"; exit 1; fi
+        fi
+
+        # --- SMART QUEUE & HARD OVERRIDE FOR PHASE 2 ---
+        if [ "${SKIP_P2}" = "true" ]; then
+            echo " Phase 2: Boltz-2 Structural Folding..."
+            echo "   -> [OVERRIDE] skip_phase_2 is TRUE in config.yaml. Bypassing entirely."
+        elif [ -d "${RUN_DIR}/top_designs" ] && find "${RUN_DIR}/top_designs" -name "*_best.cif" -print -quit | grep -q .; then
+            echo " Phase 2: Boltz-2 Structural Folding..."
+            echo "   -> [SMART QUEUE] Champion candidates already exist in top_designs/. Bypassing Phase 2 Python overhead."
+        else
+            echo " Phase 2: Boltz-2 Structural Folding & Rosetta Matrix..."
+            ./envs/boltz_env/bin/python -u scripts/02_predict_struct.py --config "$CONFIG_FILE"
+            if [ $? -ne 0 ]; then echo " ❌ Phase 2 failed!"; exit 1; fi
+        fi
+
+        # --- GATEKEEPER CHECK ---
+        if [ -d "${RUN_DIR}/top_designs" ] && find "${RUN_DIR}/top_designs" -name "*_best.cif" -print -quit | grep -q .; then
+            HAS_CANDIDATES=true
+            break # We found a winner! Break out of the loop and continue.
+        else
+            echo " [DISCOVERY GATEKEEPER] No sequences survived Phase 2 validation."
+            if [ $LOOP_COUNT -lt $MAX_LOOPS ]; then
+                echo " [RETRY] Wiping failed candidates and triggering next Discovery Loop..."
+                rm -f "${RUN_DIR}/library.fasta"
+                rm -rf "${RUN_DIR}"/Seed_*
+            else
+                echo " [STOP] Maximum discovery loops ($MAX_LOOPS) reached without success."
+                echo " [SKIP] Gracefully skipping heavy docking and MD (Phases 3, 4, 5)."
+            fi
+        fi
+
+        LOOP_COUNT=$((LOOP_COUNT + 1))
+    done
+fi
 
 # =====================================================================
 # DEEP VALIDATION (Phases 3, 4, 5) & FINAL COMPILATION (Phase 6)
 # =====================================================================
 if [ "$HAS_CANDIDATES" = true ]; then
     echo "---------------------------------------------------------------------"
-    echo " Phase 3: Unbiased Blind Global Docking..."
-    ./envs/haddock_env/bin/python -u scripts/03_blind_dock.py --config "$CONFIG_FILE"
-    if [ $? -ne 0 ]; then echo " ❌ Phase 3 failed!"; exit 1; fi
+    if [ "$BENCHMARK_PDB" = "true" ] || [ "$BENCHMARK_CIF" = "true" ]; then
+        echo " Phase 3: Unbiased Blind Global Docking..."
+        echo "   -> [OVERRIDE] Crystal structures are already natively docked. Skipping Phase 3."
+    else
+        echo " Phase 3: Unbiased Blind Global Docking..."
+        ./envs/blind_dock_env/bin/python -u scripts/03_blind_dock.py --config "$CONFIG_FILE"
+        if [ $? -ne 0 ]; then echo " ❌ Phase 3 failed!"; exit 1; fi
+    fi
 
     echo " Phase 4: OpenMM Molecular Dynamics Simulation..."
     ./envs/openmm_env/bin/python -u scripts/04_md_simulate.py --config "$CONFIG_FILE"

@@ -234,7 +234,7 @@ if not os.path.exists(master_csv):
 enforce_boltz = config.get('enforce_boltz_constraints', False)
 require_pocket_filter = config.get('require_pocket_filter', True)
 min_pocket_contacts = config.get('min_pocket_contacts', 3)
-iptm_cutoff = 0
+iptm_cutoff = config.get('iptm_cutoff', 0.8)
 
 use_msa = config.get('use_msa_server', True)
 cached_msa_path = os.path.abspath(os.path.join(run_dir, "target_cached_msa.a3m"))

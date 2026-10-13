@@ -1,0 +1,91 @@
+# =====================================================================
+# S3-DOCK: MASTER CONFIGURATION FILE
+# =====================================================================
+
+# --- 1. FACTORY RUN SETTINGS ---
+run_folder_name: "MDM2_Colab"
+
+# 🔬 EMPIRICAL CRYSTAL OVERRIDE (GRABE CONTROLS)
+# Set to 'true' to bypass Phase 1 (Seq Gen) & Phase 2 (Boltz-2) entirely. 
+# Jumps straight to MD validation (Phases 3, 4, 5) using native experimental structures.
+benchmark_pdb_exist: true
+benchmark_pdb_path: "input_benchmarks/MDM2_Colab/MDM2_Colab.pdb"
+
+benchmark_cif_exist: true
+benchmark_cif_path: "input_benchmarks/MDM2_Colab/MDM2_Colab.cif"
+
+# Strict Biochemical Filtering Targets (Used if benchmark_mode is false)
+target_net_charge: -1    # Target electrical charge at pH 7.4
+boman_index_min: 0.5         # Minimum binding potential/solubility
+hydrophobic_moment_target: 0.4
+
+# --- 2b. EVOLUTIONARY OPTIMIZER (MONTE CARLO) SETTINGS ---
+rng_seed: 7237     # Master RNG seed for deep learning and optimizer reproducibility
+charge_tolerance: 0.5        
+charge_weight: 10            
+boman_weight: 5              
+moment_weight: 5             
+max_mutations: 50000         
+plateau_patience: 800        
+initial_temp: 1.5            
+cooling_rate: 0.9995         
+dedupe_output: True          
+
+# --- 3. DYNAMIC RECEPTOR TARGET SETTINGS ---
+target_cif: "inputs/MDM2.cif"
+binder_chain_id: "B"
+
+target_chains_and_sequences:
+  A: "ETLVRPKPLLLKLLKSVGAQKDTYTMKEVLFYLGQYIMTKRLYDEKQQHIVYCSNDLLGDLFGVPSFSVKEHRKIYTMIYRNLVV"
+
+# --- 4. UNIVERSAL STRUCTURAL POCKET CONSTRAINTS ---
+max_distance_threshold: 5.0
+pocket_contacts:
+  - ["A", 29]
+  - ["A", 32]
+  - ["A", 36]
+  - ["A", 37]
+  - ["A", 42]
+  - ["A", 47]
+  - ["A", 50]
+  - ["A", 61]
+  - ["A", 66]
+  - ["A", 68]
+  - ["A", 69]
+  - ["A", 71]
+  - ["A", 74]
+  - ["A", 75]
+
+# --- 5. QUALITY CONTROL GATEKEEPERS ---
+enforce_boltz_constraints: true 
+require_pocket_filter: true
+min_pocket_contacts: 4  
+max_distance_threshold: 8
+use_msa_filter: true
+tm_threshold: 0.85
+
+
+# --- 6. HADDOCK3 BLIND GLOBAL DOCKING SETTINGS ---
+rnd_haddock_seed: 100
+run_haddock: false               
+haddock_sampling: 1000             
+haddock_seletop: 100                
+haddock_top_clusters: 10 
+
+# --- 7. OPENMM MOLECULAR DYNAMICS SETTINGS ---
+extend_simulation: true
+md_simulation_steps: 100000000    # Production-scale trajectory length
+md_reporting_interval: 10000         # Yields exactly 5,000 saved trajectory frames
+md_temperature_kelvin: 310.15
+md_NaCl_concentration: 0.150       
+
+# --- 8. MMPBSA ENERGY CALCULATION SETTINGS ---
+mmpbsa_start_frame: 0
+mmpbsa_end_frame: -1
+mmpbsa_interval: 1
+mmpbsa_salt_concentration: 0.150
+
+# --- DYNAMIC ANALYSIS WINDOW CONFIGURATION ---
+analysis_start_frame: 5000 # Set to your desired start (e.g., 70ns)
+analysis_end_frame: -1      # -1 means go all the way to the final frame
+analysis_stride: 1          # Stride interval for plotting and calculations
