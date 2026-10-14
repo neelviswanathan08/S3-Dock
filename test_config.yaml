@@ -7,8 +7,8 @@ run_folder_name: "S3-DOCK_TEST"
 num_seeds:  3
 top_k: 1   # Default to 1000 tracks (Ignored if benchmark_mode is true)
 samples_per_seed: 1           # 1 structural prediction per fasta seed entry
-max_discovery_loops: 5
-deep_dive_samples: 25
+max_discovery_loops: 3
+deep_dive_samples: 1
 
 # --- 2. PEPTIDE DESIGN CONSTRAINTS ---
 peptide_length: 6
